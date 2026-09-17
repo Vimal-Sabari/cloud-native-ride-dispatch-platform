@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    /*
+      Target and Module Selection:
+      Target: ES2022
+      Module: CommonJS
+
+      Reasoning:
+      AWS Lambda's Node.js 20 runtime executes CommonJS bundles reliably without needing
+      special ESM loader configurations, experimental flags, or mandatory '.mjs' extensions.
+      This simplifies Lambda packaging and bundling for AWS SDK v3 while still allowing full
+      access to modern ECMAScript 2022 syntax features and top-tier TypeScript type safety.
+    */
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}

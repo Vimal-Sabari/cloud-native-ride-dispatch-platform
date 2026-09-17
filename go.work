@@ -1,0 +1,11 @@
+// Required Go version: 1.22+
+go 1.22
+
+use (
+	./services/location-service
+	./services/matching-service
+	./shared/dynamo-client/go
+	./shared/geospatial
+	./shared/matching-algorithms
+	./shared/models/go
+)

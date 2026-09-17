@@ -1,0 +1,4 @@
+# Docker Compose configuration for local development
+# Placeholder for Module 1 - LocalStack and service containers will be wired in subsequent modules.
+version: "3.8"
+services: {}

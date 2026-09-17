@@ -1,0 +1,12 @@
+{
+  "name": "@ride-dispatch/models",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "node -e \"process.exit(0)\"",
+    "test": "node -e \"process.exit(0)\"",
+    "lint": "eslint ."
+  }
+}
