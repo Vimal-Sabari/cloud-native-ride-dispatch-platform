@@ -1,5 +1,7 @@
 # Cloud-Native Ride Dispatch & Matching Platform
 
+[![CI](https://github.com/Vimal-Sabari/cloud-native-ride-dispatch-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Vimal-Sabari/cloud-native-ride-dispatch-platform/actions/workflows/ci.yml)
+
 ## Overview
 A high-throughput, cloud-native ride dispatch and matching backend platform built with an event-driven polyglot architecture on AWS.
 

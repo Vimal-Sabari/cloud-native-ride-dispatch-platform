@@ -129,3 +129,17 @@ No additional LocalStack services or plugins are required for this multi-runtime
   ```bash
   dos2unix scripts/*.sh
   ```
+
+---
+
+## Recommended Branch Protection
+
+To ensure code quality, type safety, test passing, and infrastructure validity across the polyglot codebase, configure GitHub branch protection rules on `main` requiring the following status checks:
+
+1. `lint-go`: Validates all Go workspace modules with `golangci-lint`
+2. `test-go`: Runs Go unit tests with race detection (`-race`) and coverage (`-cover`)
+3. `lint-node`: Runs ESLint across all TypeScript packages and simulators
+4. `test-node`: Runs test suites across all TypeScript workspaces
+5. `integration-test`: Launches LocalStack and runs the DynamoDB integration smoke test
+6. `terraform-check`: Validates formatting and syntax of Terraform infrastructure code
+
