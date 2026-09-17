@@ -27,6 +27,8 @@ coverage/
 *.tfstate.*
 *.tfvars
 !example.tfvars
+!infra/local.tfvars
+!infra/aws-dev.tfvars
 .terraform.lock.hcl
 
 # Environment & secrets
