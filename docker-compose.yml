@@ -1,4 +1,22 @@
-# Docker Compose configuration for local development
-# Placeholder for Module 1 - LocalStack and service containers will be wired in subsequent modules.
-version: "3.8"
-services: {}
+services:
+  localstack:
+    container_name: ride-dispatch-localstack
+    image: localstack/localstack:3.8.1
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=dynamodb,sqs,sns,lambda
+      - DEFAULT_REGION=us-east-1
+      - PERSISTENCE=1
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  localstack-data:

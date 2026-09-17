@@ -1,14 +1,21 @@
-.PHONY: all up down lint test fmt lint-go lint-ts test-go test-ts fmt-go fmt-ts
+.PHONY: all up down logs smoke-test lint test fmt lint-go lint-ts test-go test-ts fmt-go fmt-ts
 
 GO_MODULES := ./services/location-service/... ./services/matching-service/... ./shared/geospatial/... ./shared/matching-algorithms/... ./shared/models/go/... ./shared/dynamo-client/go/...
 
 all: lint test
 
 up:
-	@echo "Local environment 'up' target is not yet implemented (will be added in a later module)."
+	docker compose up -d
+	bash scripts/wait-for-localstack.sh
 
 down:
-	@echo "Local environment 'down' target is not yet implemented (will be added in a later module)."
+	docker compose down -v
+
+logs:
+	docker compose logs -f localstack
+
+smoke-test:
+	bash scripts/smoke-test-localstack.sh
 
 lint: lint-go lint-ts
 
