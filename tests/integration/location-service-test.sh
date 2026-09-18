@@ -47,14 +47,26 @@ if [ ! -f "$ROOT_DIR/services/auth-stub/authorizer.zip" ]; then
   bash "$ROOT_DIR/scripts/build-node-lambda.sh" "$ROOT_DIR/services/auth-stub" "authorizer"
 fi
 
-# Step 3: Apply Terraform configuration against LocalStack
-echo "3. Applying Terraform configuration in infra/..."
+# Step 3: Check / Apply Terraform configuration against LocalStack
+echo "3. Checking Terraform infrastructure in infra/..."
 cd "$ROOT_DIR/infra"
-terraform init -backend=false
-terraform apply -var-file=local.tfvars -auto-approve
+
+if ! terraform output api_gateway_invoke_url >/dev/null 2>&1; then
+  echo "Terraform outputs not found; provisioning infrastructure..."
+  if [ -f "backend.tf" ]; then
+    mv backend.tf backend.tf.bak
+  fi
+  terraform init
+  terraform apply -var-file=local.tfvars -auto-approve
+else
+  echo "Terraform infrastructure is already provisioned."
+fi
 
 INVOKE_URL=$(terraform output -raw api_gateway_invoke_url)
+INVOKE_URL="${INVOKE_URL%/}"
+TABLE_NAME=$(terraform output -raw dynamodb_table_name 2>/dev/null || echo "$TABLE_NAME")
 echo "API Gateway Invoke URL: $INVOKE_URL"
+echo "DynamoDB Table Name:    $TABLE_NAME"
 cd "$ROOT_DIR"
 
 # Step 4: Generate a valid test JWT signed with JWT_SECRET

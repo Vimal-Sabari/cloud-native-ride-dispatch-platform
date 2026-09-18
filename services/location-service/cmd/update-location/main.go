@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 
@@ -56,6 +57,14 @@ func getClientFromEnv(ctx context.Context) (*dynamoclient.Client, error) {
 		tableName = "ride-dispatch-table"
 	}
 	endpoint := os.Getenv("DYNAMO_ENDPOINT")
+
+	// LocalStack container resolution: when running inside a Lambda container in LocalStack,
+	// localhost is unreachable. Instead, use the injected AWS_ENDPOINT_URL or LOCALSTACK_HOSTNAME.
+	if awsEndpoint := os.Getenv("AWS_ENDPOINT_URL"); awsEndpoint != "" {
+		endpoint = awsEndpoint
+	} else if localstackHost := os.Getenv("LOCALSTACK_HOSTNAME"); localstackHost != "" {
+		endpoint = fmt.Sprintf("http://%s:4566", localstackHost)
+	}
 
 	return dynamoclient.NewClient(ctx, tableName, endpoint)
 }

@@ -34,13 +34,23 @@ rm -rf "$TMP_BUILD_DIR"
 mkdir -p "$TMP_BUILD_DIR"
 
 echo "1. Bundling TypeScript entrypoint ($ENTRY_FILE) with esbuild..."
-npx esbuild "$ENTRY_FILE" \
-  --bundle \
-  --platform=node \
-  --target=node20 \
-  --minify \
-  --sourcemap=inline \
-  --outfile="$TMP_BUILD_DIR/index.js"
+if [ -f "$ORIGINAL_DIR/node_modules/.bin/esbuild" ]; then
+  "$ORIGINAL_DIR/node_modules/.bin/esbuild" "$ENTRY_FILE" \
+    --bundle \
+    --platform=node \
+    --target=node20 \
+    --minify \
+    --sourcemap=inline \
+    --outfile="$TMP_BUILD_DIR/index.js"
+else
+  npx --yes esbuild "$ENTRY_FILE" \
+    --bundle \
+    --platform=node \
+    --target=node20 \
+    --minify \
+    --sourcemap=inline \
+    --outfile="$TMP_BUILD_DIR/index.js"
+fi
 
 if [ ! -f "$TMP_BUILD_DIR/index.js" ]; then
   echo "Error: esbuild failed to generate index.js."
