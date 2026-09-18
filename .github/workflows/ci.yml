@@ -139,10 +139,12 @@ jobs:
 
       - name: Provision Terraform Infrastructure against LocalStack
         run: |
+          # Backend override: Temporarily disable the remote S3 backend configuration
+          # in CI so Terraform uses a local state file for LocalStack integration testing,
+          # as real AWS S3 remote backend credentials are not available or needed here.
+          mv infra/backend.tf infra/backend.tf.bak
           cd infra
-          # Use local/no-op backend (-backend=false) in CI since the remote S3 backend
-          # requires real AWS credentials which are not needed for LocalStack testing.
-          terraform init -backend=false
+          terraform init
           terraform apply -var-file=local.tfvars -auto-approve
 
       - name: Run DynamoDB Schema Integration Test
@@ -153,6 +155,9 @@ jobs:
         run: |
           cd infra
           terraform destroy -var-file=local.tfvars -auto-approve || true
+          if [ -f backend.tf.bak ]; then
+            mv backend.tf.bak backend.tf
+          fi
 
       - name: Teardown LocalStack
         if: always()
