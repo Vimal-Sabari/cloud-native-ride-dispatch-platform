@@ -157,3 +157,61 @@ Terraform invocation parameters:
 ### Shared Module Interface Contract
 
 Both languages route through the same module declaration in `infra/modules/lambda/variables.tf`. This unified interface prevents configuration divergence while honoring each language's build and runtime requirements.
+
+---
+
+## 6. Deploying Location Service Locally
+
+To deploy and test the Location Service with real infrastructure against LocalStack (including DynamoDB single-table schema, Go Lambdas, API Gateway REST API, and custom JWT authorizer):
+
+### Step 1: Start LocalStack
+
+Ensure Docker is running, then launch the LocalStack container:
+
+```bash
+docker compose up -d
+bash scripts/wait-for-localstack.sh
+```
+
+### Step 2: Build Lambda Deployment Artifacts
+
+Build the Go binaries for the Location Service endpoints and bundle the TypeScript JWT authorizer:
+
+```bash
+# 1. Build Location Service Go Lambdas (provided.al2023)
+bash scripts/build-go-lambda.sh services/location-service update-location
+bash scripts/build-go-lambda.sh services/location-service update-status
+
+# 2. Bundle JWT Authorizer Node.js Lambda (nodejs20.x)
+bash scripts/build-node-lambda.sh services/auth-stub authorizer
+```
+
+### Step 3: Deploy Infrastructure via Terraform
+
+Provision the local infrastructure using LocalStack overrides:
+
+```bash
+cd infra
+terraform init -backend=false
+terraform apply -var-file=local.tfvars -auto-approve
+cd ..
+```
+
+### Step 4: Run End-to-End Integration Tests
+
+Execute the automated test suite to verify authorized location updates, status transitions, unauthorized rejection, and DynamoDB single-table GSI1 consistency:
+
+```bash
+bash tests/integration/location-service-test.sh
+```
+
+### Step 5: Teardown Infrastructure
+
+When finished testing, destroy the provisioned LocalStack resources:
+
+```bash
+cd infra
+terraform destroy -var-file=local.tfvars -auto-approve
+cd ..
+```
+

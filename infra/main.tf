@@ -17,6 +17,7 @@ provider "aws" {
       apigateway = "http://localhost:4566"
       dynamodb   = "http://localhost:4566"
       ec2        = "http://localhost:4566"
+      iam        = "http://localhost:4566"
       lambda     = "http://localhost:4566"
       s3         = "http://localhost:4566"
       sns        = "http://localhost:4566"
@@ -42,8 +43,53 @@ module "sqs_sns" {
   source = "./modules/sqs-sns"
 }
 
-module "lambda" {
-  source = "./modules/lambda"
+# Module 8 JWT Authorizer Lambda (TypeScript runtime)
+module "auth_authorizer_lambda" {
+  source        = "./modules/lambda"
+  runtime       = "nodejs20.x"
+  handler       = "index.handler"
+  artifact_path = "${path.module}/../services/auth-stub/authorizer.zip"
+  function_name = "${var.project_name}-${var.environment}-auth-authorizer"
+  timeout       = 10
+  memory_size   = 128
+
+  environment_variables = {
+    JWT_SECRET = "dev-jwt-secret-for-ride-dispatch-local-testing"
+  }
+}
+
+# Location Service - Update Location Lambda (Go custom runtime)
+module "location_update_location_lambda" {
+  source             = "./modules/lambda"
+  runtime            = "provided.al2023"
+  handler            = "bootstrap"
+  artifact_path      = "${path.module}/../services/location-service/update-location.zip"
+  function_name      = "${var.project_name}-${var.environment}-location-update-location"
+  dynamodb_table_arn = module.dynamodb.table_arn
+  timeout            = 10
+  memory_size        = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+  }
+}
+
+# Location Service - Update Status Lambda (Go custom runtime)
+module "location_update_status_lambda" {
+  source             = "./modules/lambda"
+  runtime            = "provided.al2023"
+  handler            = "bootstrap"
+  artifact_path      = "${path.module}/../services/location-service/update-status.zip"
+  function_name      = "${var.project_name}-${var.environment}-location-update-status"
+  dynamodb_table_arn = module.dynamodb.table_arn
+  timeout            = 10
+  memory_size        = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+  }
 }
 
 module "ec2_matching" {
@@ -51,5 +97,13 @@ module "ec2_matching" {
 }
 
 module "api_gateway" {
-  source = "./modules/api-gateway"
+  source                          = "./modules/api-gateway"
+  project_name                    = var.project_name
+  environment                     = var.environment
+  location_lambda_invoke_arn      = module.location_update_location_lambda.invoke_arn
+  location_lambda_function_name   = module.location_update_location_lambda.function_name
+  status_lambda_invoke_arn        = module.location_update_status_lambda.invoke_arn
+  status_lambda_function_name     = module.location_update_status_lambda.function_name
+  authorizer_lambda_invoke_arn    = module.auth_authorizer_lambda.invoke_arn
+  authorizer_lambda_function_name = module.auth_authorizer_lambda.function_name
 }

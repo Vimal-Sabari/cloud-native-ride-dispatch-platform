@@ -152,6 +152,12 @@ jobs:
       - name: Run LocalStack Smoke Test
         run: bash scripts/smoke-test-localstack.sh
 
+      - name: Build Lambda Artifacts
+        run: |
+          bash scripts/build-go-lambda.sh services/location-service update-location
+          bash scripts/build-go-lambda.sh services/location-service update-status
+          bash scripts/build-node-lambda.sh services/auth-stub authorizer
+
       - name: Provision Terraform Infrastructure against LocalStack
         run: |
           # Backend override: Temporarily disable the remote S3 backend configuration
@@ -170,6 +176,9 @@ jobs:
 
       - name: Run TypeScript DynamoDB Client Integration Tests
         run: npm run test:integration --workspace=@ride-dispatch/dynamo-client
+
+      - name: Run Location Service End-to-End Integration Test
+        run: bash tests/integration/location-service-test.sh
 
       - name: Teardown Terraform Infrastructure
         if: always()
