@@ -53,3 +53,18 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 **Why:**
 - **Demonstration Without Over-Engineering:** As a cloud-native portfolio and demonstration system, the objective is to model authenticated API contracts, role-based authorization guards (`driver` vs `rider`), and principal-context propagation through API Gateway into downstream microservices without building or maintaining a complete identity provider.
 - **Production Replacement:** In a production architecture, this stub would be replaced by Amazon Cognito User Pools or an enterprise Identity Provider (e.g., Auth0, Okta) utilizing asymmetric key pairs (RS256/ES256) and OpenID Connect (OIDC). Full identity management, credential storage, and password reset workflows are intentionally out of scope.
+
+## ADR: GSI1SK Consistency Between Location and Status Updates
+
+**Decision:** Adopt a read-then-write pattern in Location Service to maintain `GSI1SK` consistency across separate location heartbeat and availability status updates.
+- On every location update (`POST /drivers/{id}/location`), the handler first executes `GetItem` on the driver's location record (`PK = "DRIVER#<driverId>"`, `SK = "LOCATION"`) to fetch their current status (defaulting to `"offline"` if no prior record exists), then writes the complete item with the status folded into `GSI1SK = "DRIVER#<status>#<driverID>"`.
+- On every status update (`PUT /drivers/{id}/status`), the handler executes `GetItem` to recover the driver's current coordinates (`lat`, `lng`), defaulting to `(0.0, 0.0)` if no prior location heartbeat has been emitted yet. It then recomputes the 5-character geohash and writes back the complete record with updated `GSI1PK`, `GSI1SK`, and `Status`.
+
+**Why:**
+- In DynamoDB single-table design, GSI1 indexes driver records by spatial geohash (`GSI1PK = "GEOHASH#<geohash>"`), enabling the Matching Service to query candidate drivers within a cell filtered by availability prefix (`GSI1SK begins_with "DRIVER#available#"`).
+- Since incoming location requests carry only coordinates (`lat`, `lng`) and status requests carry only the status string (`status`), neither payload alone contains all attributes necessary to populate both `GSI1PK` and `GSI1SK`.
+- Read-then-write ensures that each record written to DynamoDB remains self-contained, validly indexed in GSI1, and searchable by the Matching Service without requiring complex DynamoDB transactional writes across separate entities.
+
+**Accepted Trade-off (Concurrency & Race Condition):**
+- A benign race condition exists if a driver emits a status change (e.g., toggling from "offline" to "available") concurrently with a location heartbeat at the exact same millisecond. In that narrow window, the two reads could interleave and one write could overwrite the other's latest field until the next heartbeat arrives.
+- Given driver heartbeats occur frequently (e.g. every 5–10 seconds) and driver status changes are relatively infrequent, this eventual convergence within one heartbeat interval is an acceptable trade-off compared to the operational complexity and performance overhead of distributed locking or multi-item transactions.
