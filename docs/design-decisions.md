@@ -45,3 +45,11 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 
 - **Unified Mental Model:** Both wrappers expose matching method signatures and semantics (`GetItem`/`getItem`, `PutItem`/`putItem`, `Query`/`query`, `ConditionalPutItem`/`conditionalPutItem`). This guarantees engineers working across the Go and TypeScript boundaries share a single mental model for data access without language-specific API drift.
 - **First-Class Conditional Write Semantics:** In ride dispatch and driver matching, racing to atomically claim an available driver is an expected, frequent operational outcome rather than an exceptional error. Both wrappers intercept DynamoDB's `ConditionalCheckFailedException` and return a clean boolean `false` (with `nil` error in Go or without throwing an exception in TypeScript). Genuinely exceptional failures (network timeouts, validation errors, IAM denial, throttling) continue to propagate as standard errors/exceptions in both languages.
+
+## ADR: Auth Stub, Not Production Auth
+
+**Decision:** The platform uses a lightweight, symmetric-secret (HS256) JWT issuance endpoint (`POST /auth/token`) and custom API Gateway Lambda authorizer (`services/auth-stub/`) with no underlying user database, password management, or refresh token flow.
+
+**Why:**
+- **Demonstration Without Over-Engineering:** As a cloud-native portfolio and demonstration system, the objective is to model authenticated API contracts, role-based authorization guards (`driver` vs `rider`), and principal-context propagation through API Gateway into downstream microservices without building or maintaining a complete identity provider.
+- **Production Replacement:** In a production architecture, this stub would be replaced by Amazon Cognito User Pools or an enterprise Identity Provider (e.g., Auth0, Okta) utilizing asymmetric key pairs (RS256/ES256) and OpenID Connect (OIDC). Full identity management, credential storage, and password reset workflows are intentionally out of scope.

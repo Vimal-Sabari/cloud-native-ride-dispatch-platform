@@ -6,6 +6,7 @@
   "workspaces": [
     "services/trip-service",
     "services/notification-service",
+    "services/auth-stub",
     "shared/models/ts",
     "shared/dynamo-client/ts",
     "simulators/driver-simulator",
