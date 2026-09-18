@@ -125,6 +125,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
       - name: Start LocalStack
         run: docker compose up -d
 
@@ -133,6 +136,23 @@ jobs:
 
       - name: Run LocalStack Smoke Test
         run: bash scripts/smoke-test-localstack.sh
+
+      - name: Provision Terraform Infrastructure against LocalStack
+        run: |
+          cd infra
+          # Use local/no-op backend (-backend=false) in CI since the remote S3 backend
+          # requires real AWS credentials which are not needed for LocalStack testing.
+          terraform init -backend=false
+          terraform apply -var-file=local.tfvars -auto-approve
+
+      - name: Run DynamoDB Schema Integration Test
+        run: bash tests/integration/dynamodb-schema-test.sh
+
+      - name: Teardown Terraform Infrastructure
+        if: always()
+        run: |
+          cd infra
+          terraform destroy -var-file=local.tfvars -auto-approve || true
 
       - name: Teardown LocalStack
         if: always()

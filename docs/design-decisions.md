@@ -20,3 +20,17 @@
 - **Revision Strategy:** 5 characters is chosen as the starting architectural default, subject to tuning and revision based on real-world load testing and density profiles across different metropolitan areas.
 
 *Note on Implementation Language:* This geospatial library is implemented in Go per the polyglot architecture ADR, as it is consumed exclusively by the Go-based Location Service and Matching Service.
+
+## ADR: Single-Table Design with Three GSIs
+
+**Decision:** The platform uses a DynamoDB Single-Table Design with a single table and three Global Secondary Indexes (GSI1, GSI2, GSI3).
+
+**Why:**
+- **Single-Table Rationale:** Consolidating Driver Locations, Trips, and Assignment pointers into one table eliminates multi-table join round trips, allows atomic multi-entity transaction commits (`TransactWriteItems`), and enables all primary operational query patterns to be satisfied by the primary key or one of three targeted GSIs. At the project's scale, this provides predictable single-digit millisecond latency while minimizing provisioning and operational complexity.
+- **Index Roles:**
+  - **GSI1 (Geohash Driver Availability):** Serves spatial queries by geohash partition (`GSI1PK = "GEOHASH#<hash>"`), allowing Matching Service and dispatch queries to retrieve available drivers in a cell in a single query.
+  - **GSI2 (Rider Trip History):** Queries all rides requested by a rider ordered by timestamp (`GSI2PK = "RIDER#<riderId>"`), satisfying trip history pagination.
+  - **GSI3 (Driver Active Trip Guard):** Acts as a sparse index (`GSI3PK = "DRIVER#<driverId>"`) present only during an active trip, enabling immediate checks and conditional writes that enforce a driver can only have one active trip at a time.
+- **Billing & Recovery Choices:**
+  - `PAY_PER_REQUEST` (On-Demand) billing was selected to eliminate provisioned capacity estimation, handle bursty ride request spikes without throttling, and incur zero idle cost when traffic ceases.
+  - `point_in_time_recovery` is disabled explicitly to avoid continuous backup storage charges within the AWS Free Tier and educational environment scope.
