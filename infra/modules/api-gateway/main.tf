@@ -116,7 +116,6 @@ resource "aws_lambda_permission" "location" {
   action        = "lambda:InvokeFunction"
   function_name = var.location_lambda_function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
 }
 
 resource "aws_lambda_permission" "status" {
@@ -124,7 +123,6 @@ resource "aws_lambda_permission" "status" {
   action        = "lambda:InvokeFunction"
   function_name = var.status_lambda_function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
 }
 
 # ------------------------------------------------------------------------------
@@ -146,6 +144,10 @@ resource "aws_api_gateway_deployment" "main" {
       aws_api_gateway_integration.status_post.id,
       aws_api_gateway_authorizer.jwt.id
     ]))
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 
   depends_on = [

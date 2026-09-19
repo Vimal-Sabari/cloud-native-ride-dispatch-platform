@@ -168,7 +168,12 @@ jobs:
           mv infra/backend.tf infra/backend.tf.bak
           cd infra
           terraform init
-          terraform apply -var-file=local.tfvars -auto-approve
+          export TF_LOG=INFO
+          terraform apply -input=false -var-file=local.tfvars -auto-approve || {
+            echo "=== TERRAFORM APPLY FAILED. LOCALSTACK LOGS: ==="
+            docker logs ride-dispatch-localstack --tail 200
+            exit 1
+          }
 
       - name: Run DynamoDB Schema Integration Test
         run: bash tests/integration/dynamodb-schema-test.sh
@@ -186,7 +191,7 @@ jobs:
         if: always()
         run: |
           cd infra
-          terraform destroy -var-file=local.tfvars -auto-approve || true
+          terraform destroy -input=false -var-file=local.tfvars -auto-approve || true
           if [ -f backend.tf.bak ]; then
             mv backend.tf.bak backend.tf
           fi

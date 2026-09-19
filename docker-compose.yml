@@ -5,7 +5,6 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=dynamodb,sqs,sns,lambda,apigateway,iam,logs,sts
       - DEFAULT_REGION=us-east-1
       - PERSISTENCE=1
     volumes:

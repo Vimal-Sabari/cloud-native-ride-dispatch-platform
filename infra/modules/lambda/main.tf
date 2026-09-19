@@ -81,6 +81,11 @@ resource "aws_lambda_function" "this" {
   timeout          = var.timeout
   memory_size      = var.memory_size
 
+  depends_on = [
+    aws_iam_role.lambda_exec,
+    aws_iam_role_policy.logging
+  ]
+
   dynamic "environment" {
     for_each = length(var.environment_variables) > 0 ? [1] : []
     content {
