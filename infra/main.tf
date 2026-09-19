@@ -63,14 +63,15 @@ module "auth_authorizer_lambda" {
 
 # Location Service - Update Location Lambda (Go custom runtime)
 module "location_update_location_lambda" {
-  source             = "./modules/lambda"
-  runtime            = "provided.al2023"
-  handler            = "bootstrap"
-  artifact_path      = "${path.module}/../services/location-service/update-location.zip"
-  function_name      = "${var.project_name}-${var.environment}-location-update-location"
-  dynamodb_table_arn = module.dynamodb.table_arn
-  timeout            = 10
-  memory_size        = 128
+  source                 = "./modules/lambda"
+  runtime                = "provided.al2023"
+  handler                = "bootstrap"
+  artifact_path          = "${path.module}/../services/location-service/update-location.zip"
+  function_name          = "${var.project_name}-${var.environment}-location-update-location"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
 
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name
@@ -80,14 +81,15 @@ module "location_update_location_lambda" {
 
 # Location Service - Update Status Lambda (Go custom runtime)
 module "location_update_status_lambda" {
-  source             = "./modules/lambda"
-  runtime            = "provided.al2023"
-  handler            = "bootstrap"
-  artifact_path      = "${path.module}/../services/location-service/update-status.zip"
-  function_name      = "${var.project_name}-${var.environment}-location-update-status"
-  dynamodb_table_arn = module.dynamodb.table_arn
-  timeout            = 10
-  memory_size        = 128
+  source                 = "./modules/lambda"
+  runtime                = "provided.al2023"
+  handler                = "bootstrap"
+  artifact_path          = "${path.module}/../services/location-service/update-status.zip"
+  function_name          = "${var.project_name}-${var.environment}-location-update-status"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
 
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name

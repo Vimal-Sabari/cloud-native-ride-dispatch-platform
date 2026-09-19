@@ -45,9 +45,9 @@ resource "aws_iam_role_policy" "logging" {
 }
 
 # DynamoDB access policy: grants GetItem, PutItem, and Query on the table and all GSIs
-# Attached when dynamodb_table_arn is provided
+# Attached when enable_dynamodb_access is true
 resource "aws_iam_role_policy" "dynamodb" {
-  count = var.dynamodb_table_arn != null && var.dynamodb_table_arn != "" ? 1 : 0
+  count = var.enable_dynamodb_access ? 1 : 0
   name  = "${var.function_name}-dynamodb-policy"
   role  = aws_iam_role.lambda_exec.id
 

@@ -36,6 +36,12 @@ variable "environment_variables" {
   default     = {}
 }
 
+variable "enable_dynamodb_access" {
+  description = "Whether to attach a DynamoDB access policy to the Lambda execution role"
+  type        = bool
+  default     = false
+}
+
 variable "dynamodb_table_arn" {
   description = "Optional DynamoDB table ARN for IAM access policy (grants GetItem, PutItem, Query on table and indexes)"
   type        = string
