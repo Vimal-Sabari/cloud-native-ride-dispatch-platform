@@ -168,9 +168,13 @@ jobs:
           mv infra/backend.tf infra/backend.tf.bak
           cd infra
           terraform init
-          export TF_LOG=INFO
-          terraform apply -input=false -var-file=local.tfvars -auto-approve || {
-            echo "=== TERRAFORM APPLY FAILED. LOCALSTACK LOGS: ==="
+          export TF_LOG=DEBUG
+          export TF_LOG_PATH=/tmp/terraform.log
+          terraform plan -input=false -var-file=local.tfvars -out=tfplan
+          terraform apply -input=false tfplan || {
+            echo "=== TERRAFORM DEBUG LOGS ==="
+            cat /tmp/terraform.log | tail -n 250
+            echo "=== LOCALSTACK CONTAINER LOGS ==="
             docker logs ride-dispatch-localstack --tail 200
             exit 1
           }

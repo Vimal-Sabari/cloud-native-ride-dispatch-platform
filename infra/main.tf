@@ -32,7 +32,7 @@ provider "aws" {
   secret_key                  = var.environment == "local" ? "test" : null
   skip_credentials_validation = var.environment == "local"
   skip_metadata_api_check     = var.environment == "local"
-  skip_requesting_account_id  = var.environment == "local"
+  skip_requesting_account_id  = false
   s3_use_path_style           = var.environment == "local"
 }
 

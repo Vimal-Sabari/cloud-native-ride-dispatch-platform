@@ -57,7 +57,8 @@ if ! terraform output api_gateway_invoke_url >/dev/null 2>&1; then
     mv backend.tf backend.tf.bak
   fi
   terraform init
-  terraform apply -var-file=local.tfvars -auto-approve
+  terraform plan -input=false -var-file=local.tfvars -out=tfplan
+  terraform apply -input=false tfplan
 else
   echo "Terraform infrastructure is already provisioned."
 fi
