@@ -151,6 +151,9 @@ jobs:
       - name: Install Node Dependencies
         run: npm ci
 
+      - name: Build shared models
+        run: npm run build --workspace=@ride-dispatch/models
+
       - name: Start LocalStack
         run: docker compose up -d
 
@@ -164,7 +167,12 @@ jobs:
         run: |
           bash scripts/build-go-lambda.sh services/location-service update-location
           bash scripts/build-go-lambda.sh services/location-service update-status
-          bash scripts/build-node-lambda.sh services/auth-stub authorizer
+          bash scripts/build-node-lambda.sh services/auth-stub src/authorizer.ts authorizer
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/request-ride-entry.ts request-ride
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/get-ride-entry.ts get-ride
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/cancel-ride-entry.ts cancel-ride
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/list-rider-rides-entry.ts list-rider-rides
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/internal-assign-driver-entry.ts assign-driver
 
       - name: Provision Terraform Infrastructure against LocalStack
         run: |
@@ -196,6 +204,10 @@ jobs:
 
       - name: Run Location Service End-to-End Integration Test
         run: bash tests/integration/location-service-test.sh
+
+      - name: Run Trip Service End-to-End Integration Test
+        run: bash tests/integration/trip-service-test.sh
+
 
       - name: Teardown Terraform Infrastructure
         if: always()

@@ -19,3 +19,9 @@ variable "project_name" {
   type        = string
   default     = "ride-dispatch-platform"
 }
+
+variable "internal_api_key" {
+  description = "Shared secret API key for internal service-to-service authentication (e.g. Matching Service to Trip Service)"
+  type        = string
+}
+

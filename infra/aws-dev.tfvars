@@ -8,4 +8,6 @@
 #   terraform apply -var-file=aws-dev.tfvars
 # ==============================================================================
 
-environment = "aws-dev"
+environment      = "aws-dev"
+internal_api_key = "placeholder-aws-dev-internal-api-key"
+

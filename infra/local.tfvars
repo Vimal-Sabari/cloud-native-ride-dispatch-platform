@@ -8,4 +8,6 @@
 #   terraform apply -var-file=local.tfvars
 # ==============================================================================
 
-environment = "local"
+environment      = "local"
+internal_api_key = "dev-internal-api-key-for-matching-service"
+

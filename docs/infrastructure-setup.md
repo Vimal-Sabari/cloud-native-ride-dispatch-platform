@@ -215,3 +215,71 @@ terraform destroy -var-file=local.tfvars -auto-approve
 cd ..
 ```
 
+---
+
+## 7. Deploying Trip Service Locally
+
+To deploy and test Trip Service with real infrastructure against LocalStack (including DynamoDB single-table schema, five TypeScript Lambdas, unified API Gateway REST API, custom JWT authorizer, and handler-level internal API key validation):
+
+### Step 1: Start LocalStack
+
+Ensure Docker is running, then launch the LocalStack container:
+
+```bash
+docker compose up -d
+bash scripts/wait-for-localstack.sh
+```
+
+### Step 2: Build Lambda Deployment Artifacts
+
+Bundle the five Trip Service TypeScript handlers and the JWT authorizer into standalone deployment zip packages using the reusable build script:
+
+```bash
+# 1. Bundle JWT Authorizer (nodejs20.x)
+bash scripts/build-node-lambda.sh services/auth-stub src/authorizer.ts authorizer
+
+# 2. Bundle Trip Service Handlers (nodejs20.x)
+bash scripts/build-node-lambda.sh services/trip-service src/handlers/request-ride-entry.ts request-ride
+bash scripts/build-node-lambda.sh services/trip-service src/handlers/get-ride-entry.ts get-ride
+bash scripts/build-node-lambda.sh services/trip-service src/handlers/cancel-ride-entry.ts cancel-ride
+bash scripts/build-node-lambda.sh services/trip-service src/handlers/list-rider-rides-entry.ts list-rider-rides
+bash scripts/build-node-lambda.sh services/trip-service src/handlers/internal-assign-driver-entry.ts assign-driver
+```
+
+### Step 3: Deploy Infrastructure via Terraform
+
+Provision the local infrastructure (DynamoDB table, compute Lambdas, unified API Gateway with all Location and Trip Service routes):
+
+```bash
+cd infra
+terraform init -backend=false
+terraform apply -var-file=local.tfvars -auto-approve
+cd ..
+```
+
+### Step 4: Run End-to-End Integration Tests
+
+Execute the automated test suite to verify the full ride lifecycle:
+- Request ride (`POST /riders/{id}/rides`) -> 201 Created
+- Get ride details (`GET /rides/{id}`) -> 200 OK (`REQUESTED` state)
+- List rider rides (`GET /riders/{id}/rides`) -> 200 OK (includes created ride)
+- Cancel ride (`POST /rides/{id}/cancel`) -> 200 OK (`CANCELLED` state)
+- Repeated cancellation rejection -> 409 Conflict
+- Internal driver assignment (`POST /internal/rides/{id}/assign-driver` with `x-internal-api-key`) -> 200 OK (`MATCHED` state)
+- Handler-level auth enforcement on internal route with invalid or missing API key -> 401 Unauthorized
+
+```bash
+bash tests/integration/trip-service-test.sh
+```
+
+### Step 5: Teardown Infrastructure
+
+When finished testing, destroy the provisioned LocalStack resources:
+
+```bash
+cd infra
+terraform destroy -var-file=local.tfvars -auto-approve
+cd ..
+```
+
+

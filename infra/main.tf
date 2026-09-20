@@ -97,18 +97,124 @@ module "location_update_status_lambda" {
   }
 }
 
+# ------------------------------------------------------------------------------
+# Trip Service Lambdas (TypeScript / Node.js 20.x runtime)
+# ------------------------------------------------------------------------------
+
+# Trip Service - Request Ride Lambda
+module "trip_request_ride_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/trip-service/request-ride.zip"
+  function_name          = "${var.project_name}-${var.environment}-trip-request-ride"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+  }
+}
+
+# Trip Service - Get Ride Lambda
+module "trip_get_ride_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/trip-service/get-ride.zip"
+  function_name          = "${var.project_name}-${var.environment}-trip-get-ride"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+  }
+}
+
+# Trip Service - Cancel Ride Lambda
+module "trip_cancel_ride_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/trip-service/cancel-ride.zip"
+  function_name          = "${var.project_name}-${var.environment}-trip-cancel-ride"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+  }
+}
+
+# Trip Service - List Rider Rides Lambda
+module "trip_list_rider_rides_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/trip-service/list-rider-rides.zip"
+  function_name          = "${var.project_name}-${var.environment}-trip-list-rider-rides"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+  }
+}
+
+# Trip Service - Internal Assign Driver Lambda
+module "trip_assign_driver_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/trip-service/assign-driver.zip"
+  function_name          = "${var.project_name}-${var.environment}-trip-assign-driver"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    INTERNAL_API_KEY  = var.internal_api_key
+  }
+}
+
 module "ec2_matching" {
   source = "./modules/ec2-matching"
 }
 
 module "api_gateway" {
-  source                          = "./modules/api-gateway"
-  project_name                    = var.project_name
-  environment                     = var.environment
-  location_lambda_invoke_arn      = module.location_update_location_lambda.invoke_arn
-  location_lambda_function_name   = module.location_update_location_lambda.function_name
-  status_lambda_invoke_arn        = module.location_update_status_lambda.invoke_arn
-  status_lambda_function_name     = module.location_update_status_lambda.function_name
-  authorizer_lambda_invoke_arn    = module.auth_authorizer_lambda.invoke_arn
-  authorizer_lambda_function_name = module.auth_authorizer_lambda.function_name
+  source                                     = "./modules/api-gateway"
+  project_name                               = var.project_name
+  environment                                = var.environment
+  location_lambda_invoke_arn                 = module.location_update_location_lambda.invoke_arn
+  location_lambda_function_name              = module.location_update_location_lambda.function_name
+  status_lambda_invoke_arn                   = module.location_update_status_lambda.invoke_arn
+  status_lambda_function_name                = module.location_update_status_lambda.function_name
+  authorizer_lambda_invoke_arn               = module.auth_authorizer_lambda.invoke_arn
+  authorizer_lambda_function_name            = module.auth_authorizer_lambda.function_name
+  trip_request_ride_lambda_invoke_arn        = module.trip_request_ride_lambda.invoke_arn
+  trip_request_ride_lambda_function_name     = module.trip_request_ride_lambda.function_name
+  trip_get_ride_lambda_invoke_arn            = module.trip_get_ride_lambda.invoke_arn
+  trip_get_ride_lambda_function_name         = module.trip_get_ride_lambda.function_name
+  trip_cancel_ride_lambda_invoke_arn         = module.trip_cancel_ride_lambda.invoke_arn
+  trip_cancel_ride_lambda_function_name      = module.trip_cancel_ride_lambda.function_name
+  trip_list_rider_rides_lambda_invoke_arn    = module.trip_list_rider_rides_lambda.invoke_arn
+  trip_list_rider_rides_lambda_function_name = module.trip_list_rider_rides_lambda.function_name
+  trip_assign_driver_lambda_invoke_arn       = module.trip_assign_driver_lambda.invoke_arn
+  trip_assign_driver_lambda_function_name    = module.trip_assign_driver_lambda.function_name
 }
+
