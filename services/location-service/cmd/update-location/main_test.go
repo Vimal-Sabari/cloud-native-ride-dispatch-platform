@@ -27,8 +27,22 @@ func TestNewLocationHandler(t *testing.T) {
 	mock := &mockDynamoWriter{}
 	handlerFn := newLocationHandler(mock)
 
+	t.Run("unauthorized request without token or authorizer principal", func(t *testing.T) {
+		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			PathParameters: map[string]string{"id": "driver-1"},
+			Body:           `{"lat": 37.7749, "lng": -122.4194}`,
+		})
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res.StatusCode != 401 || !strings.Contains(res.Body, "unauthorized") {
+			t.Errorf("expected 401 unauthorized, got %d %s", res.StatusCode, res.Body)
+		}
+	})
+
 	t.Run("missing driver id in path params", func(t *testing.T) {
 		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			Headers:        map[string]string{"Authorization": "Bearer test-token"},
 			PathParameters: nil,
 			Body:           `{"lat": 37.77, "lng": -122.41}`,
 		})
@@ -42,6 +56,7 @@ func TestNewLocationHandler(t *testing.T) {
 
 	t.Run("invalid json request body", func(t *testing.T) {
 		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			Headers:        map[string]string{"Authorization": "Bearer test-token"},
 			PathParameters: map[string]string{"id": "driver-1"},
 			Body:           `{not-json`,
 		})
@@ -55,6 +70,7 @@ func TestNewLocationHandler(t *testing.T) {
 
 	t.Run("successful location update", func(t *testing.T) {
 		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			Headers:        map[string]string{"Authorization": "Bearer test-token"},
 			PathParameters: map[string]string{"id": "driver-1"},
 			Body:           `{"lat": 37.7749, "lng": -122.4194}`,
 		})

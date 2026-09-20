@@ -69,6 +69,10 @@ resource "aws_api_gateway_method" "location_post" {
   http_method   = "POST"
   authorization = "CUSTOM"
   authorizer_id = aws_api_gateway_authorizer.jwt.id
+
+  request_parameters = {
+    "method.request.header.Authorization" = true
+  }
 }
 
 resource "aws_api_gateway_integration" "location_post" {
@@ -89,6 +93,10 @@ resource "aws_api_gateway_method" "status_post" {
   http_method   = "POST"
   authorization = "CUSTOM"
   authorizer_id = aws_api_gateway_authorizer.jwt.id
+
+  request_parameters = {
+    "method.request.header.Authorization" = true
+  }
 }
 
 resource "aws_api_gateway_integration" "status_post" {

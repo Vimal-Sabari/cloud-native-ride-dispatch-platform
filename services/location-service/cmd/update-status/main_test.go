@@ -27,8 +27,22 @@ func TestNewStatusHandler(t *testing.T) {
 	mock := &mockDynamoWriter{}
 	handlerFn := newStatusHandler(mock)
 
+	t.Run("unauthorized request without token or authorizer principal", func(t *testing.T) {
+		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			PathParameters: map[string]string{"id": "driver-1"},
+			Body:           `{"status": "available"}`,
+		})
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res.StatusCode != 401 || !strings.Contains(res.Body, "unauthorized") {
+			t.Errorf("expected 401 unauthorized, got %d %s", res.StatusCode, res.Body)
+		}
+	})
+
 	t.Run("missing driver id in path params", func(t *testing.T) {
 		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			Headers:        map[string]string{"Authorization": "Bearer test-token"},
 			PathParameters: nil,
 			Body:           `{"status": "available"}`,
 		})
@@ -42,6 +56,7 @@ func TestNewStatusHandler(t *testing.T) {
 
 	t.Run("invalid json request body", func(t *testing.T) {
 		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			Headers:        map[string]string{"Authorization": "Bearer test-token"},
 			PathParameters: map[string]string{"id": "driver-1"},
 			Body:           `{not-json`,
 		})
@@ -55,6 +70,7 @@ func TestNewStatusHandler(t *testing.T) {
 
 	t.Run("successful status update", func(t *testing.T) {
 		res, err := handlerFn(ctx, events.APIGatewayProxyRequest{
+			Headers:        map[string]string{"Authorization": "Bearer test-token"},
 			PathParameters: map[string]string{"id": "driver-1"},
 			Body:           `{"status": "available"}`,
 		})

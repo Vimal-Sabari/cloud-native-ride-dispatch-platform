@@ -15,8 +15,37 @@ import (
 	models "github.com/Vimal-Sabari/ride-dispatch-platform/shared/models/go"
 )
 
+func hasAuthenticatedPrincipal(event events.APIGatewayProxyRequest) bool {
+	if event.RequestContext.Authorizer != nil {
+		if pid, ok := event.RequestContext.Authorizer["principalId"]; ok && pid != nil && pid != "" {
+			return true
+		}
+		if sub, ok := event.RequestContext.Authorizer["sub"]; ok && sub != nil && sub != "" {
+			return true
+		}
+	}
+	if event.Headers != nil {
+		if auth, ok := event.Headers["Authorization"]; ok && auth != "" {
+			return true
+		}
+		if auth, ok := event.Headers["authorization"]; ok && auth != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func newLocationHandler(writer handler.DynamoWriter) func(ctx context.Context, event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	return func(ctx context.Context, event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+		if !hasAuthenticatedPrincipal(event) {
+			bodyBytes, _ := json.Marshal(map[string]string{"error": "unauthorized"})
+			return events.APIGatewayProxyResponse{
+				StatusCode: 401,
+				Headers:    map[string]string{"Content-Type": "application/json"},
+				Body:       string(bodyBytes),
+			}, nil
+		}
+
 		driverID := ""
 		if event.PathParameters != nil {
 			driverID = event.PathParameters["id"]
