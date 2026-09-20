@@ -5,8 +5,28 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "node -e \"process.exit(0)\"",
-    "test": "node -e \"process.exit(0)\"",
+    "build": "tsc",
+    "test": "jest --coverage",
     "lint": "eslint ."
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/*.test.ts"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@ride-dispatch/models": "*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^26.6.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5"
   }
 }
