@@ -86,48 +86,56 @@ export async function assignDriver(
     };
   }
 
-  const now = new Date().toISOString();
-  const updatedRide: Record<string, unknown> = {
-    ...currentRide,
-    state: RideState.MATCHED,
-    driverId: driverId.trim(),
-    updatedAt: now,
-  };
-
-  // 3. Conditional update asserting the previously read state
-  const condition = `state = ${currentState}`;
-  const success = await deps.conditionalPutItem(updatedRide, condition);
-
-  if (!success) {
-    return {
-      statusCode: 409,
-      body: {
-        error: `Concurrent state modification detected on ride ${rideId}. Driver assignment aborted.`,
+  // 3. Atomically update state to MATCHED and driverId asserting active REQUESTED state
+  try {
+    const updatedRide = await deps.updateRide(
+      rideId.trim(),
+      {
+        state: RideState.MATCHED,
+        driverId: driverId.trim(),
       },
+      '#state = :requested',
+    );
+
+    // 4. Overwrite GSI3 active ride pointer for the driver
+    // Architecture Note:
+    // In a full production system requiring multi-entity consistency, this write would be
+    // grouped with step 3 using DynamoDB TransactWriteItems. A sequential two-step write is
+    // an accepted and documented simplification for this single-table design.
+    const now = new Date().toISOString();
+    const driverPointerItem: Record<string, unknown> = {
+      PK: `DRIVER#${driverId.trim()}`,
+      SK: 'ACTIVE_RIDE_POINTER',
+      GSI3PK: `DRIVER#${driverId.trim()}`,
+      GSI3SK: 'ACTIVE_RIDE',
+      rideId: rideId.trim(),
+      createdAt: now,
+      updatedAt: now,
     };
+
+    await deps.putItem(driverPointerItem);
+
+    return {
+      statusCode: 200,
+      body: updatedRide,
+    };
+  } catch (error: unknown) {
+    if (
+      error !== null &&
+      typeof error === 'object' &&
+      (('name' in error && (error as { name: string }).name === 'ConditionalCheckFailedException') ||
+        ('__type' in error && (error as { __type: string }).__type.endsWith('ConditionalCheckFailedException')))
+    ) {
+      return {
+        statusCode: 409,
+        body: {
+          message: 'Ride is no longer assignable',
+          error: `Concurrent state modification detected on ride ${rideId}. Driver assignment aborted.`,
+        },
+      };
+    }
+    throw error;
   }
-
-  // 4. Overwrite GSI3 active ride pointer for the driver
-  // Architecture Note:
-  // In a full production system requiring multi-entity consistency, this write would be
-  // grouped with step 3 using DynamoDB TransactWriteItems. A sequential two-step write is
-  // an accepted and documented simplification for this single-table design.
-  const driverPointerItem: Record<string, unknown> = {
-    PK: `DRIVER#${driverId.trim()}`,
-    SK: 'ACTIVE_RIDE_POINTER',
-    GSI3PK: `DRIVER#${driverId.trim()}`,
-    GSI3SK: 'ACTIVE_RIDE',
-    rideId: rideId.trim(),
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  await deps.putItem(driverPointerItem);
-
-  return {
-    statusCode: 200,
-    body: updatedRide,
-  };
 }
 
 export const internalAssignDriver = assignDriver;

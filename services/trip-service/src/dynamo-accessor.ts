@@ -16,4 +16,11 @@ export interface DynamoAccessor {
   putItem(item: Record<string, unknown>): Promise<void>;
   query(input: QueryInput): Promise<Record<string, unknown>[]>;
   conditionalPutItem(item: Record<string, unknown>, conditionExpression: string): Promise<boolean>;
+  updateRide(
+    rideId: string,
+    values: { state?: string; driverId?: string },
+    condition?: string,
+    extraExpressionValues?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
 }
+

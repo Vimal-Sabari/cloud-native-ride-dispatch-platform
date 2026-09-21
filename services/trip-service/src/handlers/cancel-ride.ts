@@ -45,28 +45,40 @@ export async function cancelRide(
     };
   }
 
-  const now = new Date().toISOString();
-  const updatedRide: Record<string, unknown> = {
-    ...currentRide,
-    state: RideState.CANCELLED,
-    updatedAt: now,
-  };
-
   // 2. Perform conditional update ensuring state hasn't changed concurrently
-  const condition = `state = ${currentState}`;
-  const success = await deps.conditionalPutItem(updatedRide, condition);
+  try {
+    let condition = '#state = :requested';
+    if (currentState === RideState.MATCHED) {
+      condition = '#state = :matched';
+    } else if (currentState === RideState.DRIVER_EN_ROUTE) {
+      condition = '#state = :driver_en_route';
+    }
 
-  if (!success) {
+    const updatedRide = await deps.updateRide(
+      rideId.trim(),
+      { state: RideState.CANCELLED },
+      condition,
+    );
+
     return {
-      statusCode: 409,
-      body: {
-        error: `Concurrent state modification detected on ride ${rideId}. State was modified prior to cancellation.`,
-      },
+      statusCode: 200,
+      body: updatedRide,
     };
+  } catch (error: unknown) {
+    if (
+      error !== null &&
+      typeof error === 'object' &&
+      (('name' in error && (error as { name: string }).name === 'ConditionalCheckFailedException') ||
+        ('__type' in error && (error as { __type: string }).__type.endsWith('ConditionalCheckFailedException')))
+    ) {
+      return {
+        statusCode: 409,
+        body: {
+          message: 'Ride is no longer cancellable',
+          error: `Concurrent state modification detected on ride ${rideId}. State was modified prior to cancellation.`,
+        },
+      };
+    }
+    throw error;
   }
-
-  return {
-    statusCode: 200,
-    body: updatedRide,
-  };
 }

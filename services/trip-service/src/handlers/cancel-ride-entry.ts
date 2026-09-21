@@ -41,7 +41,15 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
 
     const result = await cancelRide(rideId, dynamoClient);
     return jsonResponse(result.statusCode, result.body);
-  } catch (error) {
+  } catch (error: unknown) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      (("name" in error && (error as { name: string }).name === "ConditionalCheckFailedException") ||
+        ("__type" in error && (error as { __type: string }).__type.endsWith("ConditionalCheckFailedException")))
+    ) {
+      return jsonResponse(409, { message: "Ride is no longer cancellable" });
+    }
     console.error("cancel-ride failed", { error, event });
     return jsonResponse(500, { message: "Internal server error" });
   }

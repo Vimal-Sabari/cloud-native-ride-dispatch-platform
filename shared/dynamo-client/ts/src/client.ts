@@ -4,6 +4,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 export interface QueryInput {
@@ -11,6 +12,11 @@ export interface QueryInput {
   keyConditionExpression: string;
   expressionAttributeValues: Record<string, unknown>;
   filterExpression?: string;
+}
+
+export interface UpdateRideValues {
+  state?: string;
+  driverId?: string;
 }
 
 function resolveEndpoint(endpoint?: string): string | undefined {
@@ -57,7 +63,6 @@ export class DynamoClient {
       },
     });
   }
-
 
   async getItem(pk: string, sk: string): Promise<Record<string, unknown> | null> {
     const response = await this.docClient.send(
@@ -108,16 +113,98 @@ export class DynamoClient {
     return items;
   }
 
+  async updateRide(
+    rideId: string,
+    values: UpdateRideValues,
+    condition?: string,
+    extraExpressionValues?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const cleanRideId = rideId.startsWith('RIDE#') ? rideId.slice(5) : rideId;
+    const pk = `RIDE#${cleanRideId}`;
+    const sk = 'DETAILS';
+
+    const names: Record<string, string> = {
+      '#rideId': 'rideId',
+      '#updatedAt': 'updatedAt',
+    };
+    const expressionValues: Record<string, unknown> = {
+      ':rideId': cleanRideId,
+      ':updatedAt': new Date().toISOString(),
+    };
+    const assignments: string[] = ['#updatedAt = :updatedAt'];
+
+    if (values.state !== undefined) {
+      names['#state'] = 'state';
+      expressionValues[':state'] = values.state;
+      assignments.push('#state = :state');
+    }
+
+    if (values.driverId !== undefined) {
+      names['#driverId'] = 'driverId';
+      expressionValues[':driverId'] = values.driverId;
+      assignments.push('#driverId = :driverId');
+    }
+
+    if (condition) {
+      if (condition.includes('#state')) {
+        names['#state'] = 'state';
+      }
+      if (condition.includes(':requested') && expressionValues[':requested'] === undefined) {
+        expressionValues[':requested'] = 'REQUESTED';
+      }
+      if (condition.includes(':matched') && expressionValues[':matched'] === undefined) {
+        expressionValues[':matched'] = 'MATCHED';
+      }
+      if (condition.includes(':driver_en_route') && expressionValues[':driver_en_route'] === undefined) {
+        expressionValues[':driver_en_route'] = 'DRIVER_EN_ROUTE';
+      }
+    }
+
+    if (extraExpressionValues) {
+      Object.assign(expressionValues, extraExpressionValues);
+    }
+
+    const command = new UpdateCommand({
+      TableName: this.tableName,
+      Key: {
+        PK: pk,
+        SK: sk,
+      },
+      UpdateExpression: `SET ${assignments.join(', ')}`,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: expressionValues,
+      ConditionExpression: condition,
+      ReturnValues: 'ALL_NEW',
+    });
+
+    const response = await this.docClient.send(command);
+    return (response.Attributes as Record<string, unknown>) ?? {};
+  }
+
   async conditionalPutItem(
     item: Record<string, unknown>,
     conditionExpression: string,
   ): Promise<boolean> {
     try {
+      const names: Record<string, string> = {};
+      const values: Record<string, unknown> = {};
+      let expr = conditionExpression;
+
+      const stateMatch = expr.match(/state\s*=\s*([A-Za-z0-9_]+)/);
+      if (stateMatch) {
+        const val = stateMatch[1];
+        names['#state'] = 'state';
+        values[':state'] = val;
+        expr = expr.replace(/state\s*=\s*[A-Za-z0-9_]+/, '#state = :state');
+      }
+
       await this.docClient.send(
         new PutCommand({
           TableName: this.tableName,
           Item: item,
-          ConditionExpression: conditionExpression,
+          ConditionExpression: expr,
+          ...(Object.keys(names).length > 0 ? { ExpressionAttributeNames: names } : {}),
+          ...(Object.keys(values).length > 0 ? { ExpressionAttributeValues: values } : {}),
         }),
       );
       return true;
@@ -134,4 +221,21 @@ export class DynamoClient {
       throw err;
     }
   }
+}
+
+export async function updateRide(
+  rideId: string,
+  values: UpdateRideValues,
+  condition?: string,
+  client?: DynamoClient,
+): Promise<Record<string, unknown>> {
+  const targetClient =
+    client ||
+    new DynamoClient(
+      process.env.RIDES_TABLE || process.env.DYNAMO_TABLE_NAME || 'ride-dispatch-platform-local',
+      process.env.AWS_ENDPOINT_URL ||
+        (process.env.LOCALSTACK_HOSTNAME ? `http://${process.env.LOCALSTACK_HOSTNAME}:4566` : undefined) ||
+        process.env.DYNAMO_ENDPOINT,
+    );
+  return targetClient.updateRide(rideId, values, condition);
 }

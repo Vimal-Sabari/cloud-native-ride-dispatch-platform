@@ -90,7 +90,15 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
 
     const result = await assignDriver(rideId, driverId, dynamoClient, event.headers || {});
     return jsonResponse(result.statusCode, result.body);
-  } catch (error) {
+  } catch (error: unknown) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      (("name" in error && (error as { name: string }).name === "ConditionalCheckFailedException") ||
+        ("__type" in error && (error as { __type: string }).__type.endsWith("ConditionalCheckFailedException")))
+    ) {
+      return jsonResponse(409, { message: "Ride is no longer assignable" });
+    }
     console.error("assign-driver failed", { error, event });
     return jsonResponse(500, { message: "Internal server error" });
   }

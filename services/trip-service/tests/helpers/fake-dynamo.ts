@@ -75,10 +75,13 @@ export class FakeDynamoAccessor implements DynamoAccessor {
       return true;
     }
 
-    // Pattern 2: state = <VALUE> (e.g., "state = REQUESTED", "state = MATCHED")
-    const stateMatch = normalizedExpr.match(/^state\s*=\s*(.+)$/i);
+    // Pattern 2: state = <VALUE> or #state = :<VALUE>
+    const stateMatch = normalizedExpr.match(/^(?:#state|state)\s*=\s*(.+)$/i);
     if (stateMatch) {
-      const expectedState = stateMatch[1].trim().replace(/^['"]|['"]$/g, '');
+      let expectedState = stateMatch[1].trim().replace(/^['"]|['"]$/g, '');
+      if (expectedState.startsWith(':')) {
+        expectedState = expectedState.slice(1).toUpperCase();
+      }
       if (!existing || existing.state !== expectedState) {
         return false; // Stored state does not match expected state
       }
@@ -90,6 +93,69 @@ export class FakeDynamoAccessor implements DynamoAccessor {
       `FakeDynamoAccessor: unsupported conditionExpression: "${conditionExpression}". ` +
         `This test fake only supports attribute_not_exists(PK) and state = <value>.`,
     );
+  }
+
+  async updateRide(
+    rideId: string,
+    values: { state?: string; driverId?: string },
+    condition?: string,
+    extraExpressionValues?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const cleanRideId = rideId.startsWith('RIDE#') ? rideId.slice(5) : rideId;
+    const key = this.makeKey(`RIDE#${cleanRideId}`, 'DETAILS');
+    const existing = this.storage.get(key);
+
+    if (!existing) {
+      const err = new Error('ResourceNotFoundException');
+      err.name = 'ResourceNotFoundException';
+      throw err;
+    }
+
+    // Check if conditionalPutItem was mocked or if condition checks fail
+    const dummyItem = { PK: `RIDE#${cleanRideId}`, SK: 'DETAILS', ...existing };
+    const canPut = await this.conditionalPutItem(dummyItem, condition || 'state = REQUESTED');
+    if (!canPut) {
+      const err = new Error('ConditionalCheckFailedException');
+      err.name = 'ConditionalCheckFailedException';
+      throw err;
+    }
+
+    if (condition) {
+      const normalized = condition.trim();
+      if (normalized.includes(':requested') && existing.state !== 'REQUESTED') {
+        const err = new Error('ConditionalCheckFailedException');
+        err.name = 'ConditionalCheckFailedException';
+        throw err;
+      }
+      if (normalized.includes(':matched') && existing.state !== 'MATCHED') {
+        const err = new Error('ConditionalCheckFailedException');
+        err.name = 'ConditionalCheckFailedException';
+        throw err;
+      }
+      if (normalized.includes(':driver_en_route') && existing.state !== 'DRIVER_EN_ROUTE') {
+        const err = new Error('ConditionalCheckFailedException');
+        err.name = 'ConditionalCheckFailedException';
+        throw err;
+      }
+      if (normalized.includes(':expectedState')) {
+        const expected = extraExpressionValues?.[':expectedState'];
+        if (expected && existing.state !== expected) {
+          const err = new Error('ConditionalCheckFailedException');
+          err.name = 'ConditionalCheckFailedException';
+          throw err;
+        }
+      }
+    }
+
+    const updated = {
+      ...existing,
+      ...(values.state !== undefined ? { state: values.state } : {}),
+      ...(values.driverId !== undefined ? { driverId: values.driverId } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.storage.set(key, JSON.parse(JSON.stringify(updated)));
+    return updated;
   }
 
   // Test helper utilities
