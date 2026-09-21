@@ -46,7 +46,8 @@ export function randomStartingPoint(center: Point, radiusMeters: number): Point 
   const dy = r * Math.sin(angle);
 
   const dLat = (dy / EARTH_RADIUS_METERS) * RAD_TO_DEG;
-  const cosLat = Math.cos(center.lat * DEG_TO_RAD);
+  const meanLat = center.lat + dLat / 2;
+  const cosLat = Math.cos(meanLat * DEG_TO_RAD);
   const dLng = (dx / (EARTH_RADIUS_METERS * cosLat)) * RAD_TO_DEG;
 
   return {
@@ -54,6 +55,7 @@ export function randomStartingPoint(center: Point, radiusMeters: number): Point 
     lng: center.lng + dLng,
   };
 }
+
 
 /**
  * Computes the next position for a driver using a bounded random walk.

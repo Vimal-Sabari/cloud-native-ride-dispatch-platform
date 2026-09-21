@@ -69,8 +69,17 @@ OUT_JS="$DIST_DIR/index.js"
 OUT_ZIP="$SERVICE_DIR/${OUTPUT_NAME}.zip"
 rm -f "$OUT_ZIP"
 
+# Ensure shared workspace dependencies are compiled before bundling
+if [ ! -f "$ORIGINAL_DIR/shared/models/ts/dist/index.js" ] && [ -d "$ORIGINAL_DIR/shared/models/ts" ]; then
+  npm run build --workspace=@ride-dispatch/models --prefix="$ORIGINAL_DIR" >/dev/null 2>&1 || true
+fi
+if [ ! -f "$ORIGINAL_DIR/shared/dynamo-client/ts/dist/index.js" ] && [ -d "$ORIGINAL_DIR/shared/dynamo-client/ts" ]; then
+  npm run build --workspace=@ride-dispatch/dynamo-client --prefix="$ORIGINAL_DIR" >/dev/null 2>&1 || true
+fi
+
 echo "1. Bundling with esbuild (Node 20, platform node)..."
 if [ -f "$ORIGINAL_DIR/node_modules/.bin/esbuild" ]; then
+
   "$ORIGINAL_DIR/node_modules/.bin/esbuild" "$ENTRY_FILE" \
     --bundle \
     --platform=node \

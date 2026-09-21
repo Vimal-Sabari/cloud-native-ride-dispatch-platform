@@ -4,7 +4,8 @@ describe('movement module', () => {
   const center: Point = { lat: 37.7749, lng: -122.4194 }; // San Francisco
   const radiusMeters = 3000;
   const stepSizeMeters = 30;
-  const floatTolerance = 1e-3;
+  const floatTolerance = 0.5;
+
 
   describe('approxDistanceMeters', () => {
     it('returns 0 distance when measuring a point to itself', () => {

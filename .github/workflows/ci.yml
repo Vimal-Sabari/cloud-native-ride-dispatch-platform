@@ -88,8 +88,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build shared models
-        run: npm run build --workspace=@ride-dispatch/models
+      - name: Build shared packages
+        run: |
+          npm run build --workspace=@ride-dispatch/models
+          npm run build --workspace=@ride-dispatch/dynamo-client
 
       - name: Run ESLint
         run: npm run lint
@@ -118,8 +120,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build shared models
-        run: npm run build --workspace=@ride-dispatch/models
+      - name: Build shared packages
+        run: |
+          npm run build --workspace=@ride-dispatch/models
+          npm run build --workspace=@ride-dispatch/dynamo-client
 
       - name: Run tests
         run: npm test
@@ -151,10 +155,13 @@ jobs:
       - name: Install Node Dependencies
         run: npm ci
 
-      - name: Build shared models
-        run: npm run build --workspace=@ride-dispatch/models
+      - name: Build shared packages
+        run: |
+          npm run build --workspace=@ride-dispatch/models
+          npm run build --workspace=@ride-dispatch/dynamo-client
 
       - name: Start LocalStack
+
         run: docker compose up -d
 
       - name: Wait for LocalStack
