@@ -13,6 +13,22 @@ export interface QueryInput {
   filterExpression?: string;
 }
 
+function resolveEndpoint(endpoint?: string): string | undefined {
+  if (process.env.AWS_ENDPOINT_URL) {
+    return process.env.AWS_ENDPOINT_URL;
+  }
+  if (process.env.LOCALSTACK_HOSTNAME) {
+    return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
+  }
+  if (endpoint && endpoint.trim() !== '') {
+    if (process.env.AWS_LAMBDA_FUNCTION_NAME && endpoint.includes('localhost') && process.env.LOCALSTACK_HOSTNAME) {
+      return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
+    }
+    return endpoint;
+  }
+  return undefined;
+}
+
 export class DynamoClient {
   private readonly docClient: DynamoDBDocumentClient;
   private readonly tableName: string;
@@ -20,14 +36,15 @@ export class DynamoClient {
   constructor(tableName: string, endpoint?: string) {
     this.tableName = tableName;
 
+    const resolvedEndpoint = resolveEndpoint(endpoint);
     let ddbClient: DynamoDBClient;
-    if (endpoint) {
+    if (resolvedEndpoint) {
       ddbClient = new DynamoDBClient({
-        endpoint,
-        region: 'us-east-1',
+        endpoint: resolvedEndpoint,
+        region: process.env.AWS_REGION || 'us-east-1',
         credentials: {
-          accessKeyId: 'test',
-          secretAccessKey: 'test',
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'test',
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'test',
         },
       });
     } else {
@@ -40,6 +57,7 @@ export class DynamoClient {
       },
     });
   }
+
 
   async getItem(pk: string, sk: string): Promise<Record<string, unknown> | null> {
     const response = await this.docClient.send(

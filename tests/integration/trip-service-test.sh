@@ -131,8 +131,10 @@ if [ "$HTTP_CODE" = "201" ] && [ -n "$RIDE_ID" ]; then
   echo "  [PASS] Ride requested successfully (HTTP 201, rideId: $RIDE_ID)"
 else
   echo "  [FAIL] Expected HTTP 201 with rideId, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
-  FAILED=1
+  echo "Stopping dependent tests due to ride creation failure."
+  exit 1
 fi
+
 
 # Step 6: Test GET /rides/{rideId}
 echo ""

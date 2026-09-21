@@ -7,9 +7,21 @@ import { DynamoClient } from "@ride-dispatch/dynamo-client";
 import { RequestRideBody } from "@ride-dispatch/models";
 import { requestRide } from "./request-ride";
 
-const tableName = process.env.DYNAMO_TABLE_NAME || "ride-dispatch-platform-local";
-const endpoint = process.env.DYNAMO_ENDPOINT || undefined;
-const dynamoClient = new DynamoClient(tableName, endpoint);
+function getTableName(): string {
+  return process.env.DYNAMO_TABLE_NAME || process.env.RIDES_TABLE || "ride-dispatch-platform-local";
+}
+
+function getEndpoint(): string | undefined {
+  if (process.env.AWS_ENDPOINT_URL) {
+    return process.env.AWS_ENDPOINT_URL;
+  }
+  if (process.env.LOCALSTACK_HOSTNAME) {
+    return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
+  }
+  return process.env.DYNAMO_ENDPOINT || undefined;
+}
+
+const dynamoClient = new DynamoClient(getTableName(), getEndpoint());
 
 function jsonResponse(statusCode: number, body: unknown): APIGatewayProxyResult {
   return {
@@ -22,19 +34,39 @@ function jsonResponse(statusCode: number, body: unknown): APIGatewayProxyResult 
 }
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
-  const riderId =
-    event.pathParameters?.id ||
-    (event.requestContext?.authorizer?.sub as string) ||
-    (event.requestContext?.authorizer?.principalId as string) ||
-    "";
-
-  let body: RequestRideBody;
   try {
-    body = JSON.parse(event.body || "{}") as RequestRideBody;
-  } catch {
-    return jsonResponse(400, { error: "Invalid JSON in request body" });
-  }
+    const riderId =
+      event.pathParameters?.id ||
+      event.pathParameters?.riderId ||
+      (event.requestContext?.authorizer?.sub as string) ||
+      (event.requestContext?.authorizer?.principalId as string) ||
+      (event.requestContext?.authorizer?.claims?.sub as string) ||
+      "";
 
-  const result = await requestRide(riderId, body, dynamoClient);
-  return jsonResponse(result.statusCode, result.body);
+    if (!riderId) {
+      return jsonResponse(400, { error: "Missing riderId in request" });
+    }
+
+    let rawBody = event.body || "{}";
+    if (event.isBase64Encoded && event.body) {
+      try {
+        rawBody = Buffer.from(event.body, "base64").toString("utf-8");
+      } catch {
+        return jsonResponse(400, { error: "Invalid base64 request body" });
+      }
+    }
+
+    let body: RequestRideBody;
+    try {
+      body = JSON.parse(rawBody) as RequestRideBody;
+    } catch {
+      return jsonResponse(400, { error: "Invalid JSON in request body" });
+    }
+
+    const result = await requestRide(riderId, body, dynamoClient);
+    return jsonResponse(result.statusCode, result.body);
+  } catch (error) {
+    console.error("request-ride failed", { error, event });
+    return jsonResponse(500, { message: "Internal server error" });
+  }
 };

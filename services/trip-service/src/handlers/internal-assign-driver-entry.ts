@@ -6,9 +6,21 @@ import { APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
 import { DynamoClient } from "@ride-dispatch/dynamo-client";
 import { assignDriver } from "./internal-assign-driver";
 
-const tableName = process.env.DYNAMO_TABLE_NAME || "ride-dispatch-platform-local";
-const endpoint = process.env.DYNAMO_ENDPOINT || undefined;
-const dynamoClient = new DynamoClient(tableName, endpoint);
+function getTableName(): string {
+  return process.env.DYNAMO_TABLE_NAME || process.env.RIDES_TABLE || "ride-dispatch-platform-local";
+}
+
+function getEndpoint(): string | undefined {
+  if (process.env.AWS_ENDPOINT_URL) {
+    return process.env.AWS_ENDPOINT_URL;
+  }
+  if (process.env.LOCALSTACK_HOSTNAME) {
+    return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
+  }
+  return process.env.DYNAMO_ENDPOINT || undefined;
+}
+
+const dynamoClient = new DynamoClient(getTableName(), getEndpoint());
 
 function jsonResponse(statusCode: number, body: unknown): APIGatewayProxyResult {
   return {
@@ -39,27 +51,47 @@ interface AssignDriverRequestBody {
 }
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
-  // 1. Enforce internal service-to-service authentication before any business logic
-  const apiKey = getHeaderCaseInsensitive(event.headers, "x-internal-api-key");
-  const expectedKey = process.env.INTERNAL_API_KEY;
-
-  if (!expectedKey || !apiKey || apiKey !== expectedKey) {
-    return jsonResponse(401, {
-      error: "Unauthorized: invalid or missing internal API key",
-    });
-  }
-
-  const rideId = event.pathParameters?.id || "";
-
-  let body: AssignDriverRequestBody;
   try {
-    body = JSON.parse(event.body || "{}") as AssignDriverRequestBody;
-  } catch {
-    return jsonResponse(400, { error: "Invalid JSON in request body" });
+    // 1. Enforce internal service-to-service authentication before any business logic
+    const apiKey = getHeaderCaseInsensitive(event.headers, "x-internal-api-key");
+    const expectedKey = process.env.INTERNAL_API_KEY;
+
+    if (!expectedKey || !apiKey || apiKey !== expectedKey) {
+      return jsonResponse(401, {
+        error: "Unauthorized: invalid or missing internal API key",
+      });
+    }
+
+    const rideId = event.pathParameters?.id || event.pathParameters?.rideId || "";
+    if (!rideId) {
+      return jsonResponse(400, { error: "Missing rideId in path parameters" });
+    }
+
+    let rawBody = event.body || "{}";
+    if (event.isBase64Encoded && event.body) {
+      try {
+        rawBody = Buffer.from(event.body, "base64").toString("utf-8");
+      } catch {
+        return jsonResponse(400, { error: "Invalid base64 request body" });
+      }
+    }
+
+    let body: AssignDriverRequestBody;
+    try {
+      body = JSON.parse(rawBody) as AssignDriverRequestBody;
+    } catch {
+      return jsonResponse(400, { error: "Invalid JSON in request body" });
+    }
+
+    const driverId = body.driverId || "";
+    if (!driverId) {
+      return jsonResponse(400, { error: "Missing driverId in request body" });
+    }
+
+    const result = await assignDriver(rideId, driverId, dynamoClient, event.headers || {});
+    return jsonResponse(result.statusCode, result.body);
+  } catch (error) {
+    console.error("assign-driver failed", { error, event });
+    return jsonResponse(500, { message: "Internal server error" });
   }
-
-  const driverId = body.driverId || "";
-
-  const result = await assignDriver(rideId, driverId, dynamoClient, event.headers || {});
-  return jsonResponse(result.statusCode, result.body);
 };
