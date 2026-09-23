@@ -19,6 +19,17 @@ export interface UpdateRideValues {
   driverId?: string;
 }
 
+export function isConditionalCheckFailed(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as Record<string, unknown>;
+  return (
+    err.name === 'ConditionalCheckFailedException' ||
+    (typeof err.__type === 'string' && err.__type.endsWith('ConditionalCheckFailedException')) ||
+    err.code === 'ConditionalCheckFailedException' ||
+    err.Code === 'ConditionalCheckFailedException'
+  );
+}
+
 function resolveEndpoint(endpoint?: string): string | undefined {
   if (process.env.AWS_ENDPOINT_URL) {
     return process.env.AWS_ENDPOINT_URL;
@@ -54,7 +65,9 @@ export class DynamoClient {
         },
       });
     } else {
-      ddbClient = new DynamoDBClient({});
+      ddbClient = new DynamoDBClient({
+        region: process.env.AWS_REGION || 'us-east-1',
+      });
     }
 
     this.docClient = DynamoDBDocumentClient.from(ddbClient, {
@@ -124,11 +137,9 @@ export class DynamoClient {
     const sk = 'DETAILS';
 
     const names: Record<string, string> = {
-      '#rideId': 'rideId',
       '#updatedAt': 'updatedAt',
     };
     const expressionValues: Record<string, unknown> = {
-      ':rideId': cleanRideId,
       ':updatedAt': new Date().toISOString(),
     };
     const assignments: string[] = ['#updatedAt = :updatedAt'];
@@ -158,10 +169,29 @@ export class DynamoClient {
       if (condition.includes(':driver_en_route') && expressionValues[':driver_en_route'] === undefined) {
         expressionValues[':driver_en_route'] = 'DRIVER_EN_ROUTE';
       }
+      if (condition.includes('#riderId')) {
+        names['#riderId'] = 'riderId';
+      }
     }
 
     if (extraExpressionValues) {
       Object.assign(expressionValues, extraExpressionValues);
+    }
+
+    const combinedExpressions = `${assignments.join(' ')} ${condition || ''}`;
+
+    const cleanNames: Record<string, string> = {};
+    for (const [k, v] of Object.entries(names)) {
+      if (combinedExpressions.includes(k)) {
+        cleanNames[k] = v;
+      }
+    }
+
+    const cleanValues: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(expressionValues)) {
+      if (combinedExpressions.includes(k)) {
+        cleanValues[k] = v;
+      }
     }
 
     const command = new UpdateCommand({
@@ -171,9 +201,9 @@ export class DynamoClient {
         SK: sk,
       },
       UpdateExpression: `SET ${assignments.join(', ')}`,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: expressionValues,
-      ConditionExpression: condition,
+      ...(Object.keys(cleanNames).length > 0 ? { ExpressionAttributeNames: cleanNames } : {}),
+      ...(Object.keys(cleanValues).length > 0 ? { ExpressionAttributeValues: cleanValues } : {}),
+      ...(condition && condition.trim() !== '' ? { ConditionExpression: condition } : {}),
       ReturnValues: 'ALL_NEW',
     });
 

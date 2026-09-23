@@ -124,12 +124,13 @@ export async function assignDriver(
       error !== null &&
       typeof error === 'object' &&
       (('name' in error && (error as { name: string }).name === 'ConditionalCheckFailedException') ||
-        ('__type' in error && (error as { __type: string }).__type.endsWith('ConditionalCheckFailedException')))
+        ('__type' in error && (error as { __type: string }).__type.endsWith('ConditionalCheckFailedException')) ||
+        ('code' in error && (error as { code: string }).code === 'ConditionalCheckFailedException'))
     ) {
       return {
         statusCode: 409,
         body: {
-          message: 'Ride is no longer assignable',
+          message: 'Ride is no longer available for assignment',
           error: `Concurrent state modification detected on ride ${rideId}. Driver assignment aborted.`,
         },
       };

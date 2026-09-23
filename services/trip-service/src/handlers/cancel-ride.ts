@@ -69,12 +69,13 @@ export async function cancelRide(
       error !== null &&
       typeof error === 'object' &&
       (('name' in error && (error as { name: string }).name === 'ConditionalCheckFailedException') ||
-        ('__type' in error && (error as { __type: string }).__type.endsWith('ConditionalCheckFailedException')))
+        ('__type' in error && (error as { __type: string }).__type.endsWith('ConditionalCheckFailedException')) ||
+        ('code' in error && (error as { code: string }).code === 'ConditionalCheckFailedException'))
     ) {
       return {
         statusCode: 409,
         body: {
-          message: 'Ride is no longer cancellable',
+          message: 'Ride cannot be cancelled in its current state',
           error: `Concurrent state modification detected on ride ${rideId}. State was modified prior to cancellation.`,
         },
       };

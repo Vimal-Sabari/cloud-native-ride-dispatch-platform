@@ -3,11 +3,18 @@
  */
 
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
-import { DynamoClient } from "@ride-dispatch/dynamo-client";
+import { DynamoClient, isConditionalCheckFailed } from "@ride-dispatch/dynamo-client";
 import { cancelRide } from "./cancel-ride";
 
 function getTableName(): string {
-  return process.env.DYNAMO_TABLE_NAME || process.env.RIDES_TABLE || "ride-dispatch-platform-local";
+  const table = process.env.RIDES_TABLE || process.env.DYNAMO_TABLE_NAME || process.env.TABLE_NAME;
+  if (!table) {
+    if (process.env.NODE_ENV === "test") {
+      return "ride-dispatch-platform-local";
+    }
+    throw new Error("RIDES_TABLE is not configured");
+  }
+  return table;
 }
 
 function getEndpoint(): string | undefined {
@@ -33,8 +40,8 @@ function jsonResponse(statusCode: number, body: unknown): APIGatewayProxyResult 
 }
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
+  const rideId = event.pathParameters?.id || event.pathParameters?.rideId || "";
   try {
-    const rideId = event.pathParameters?.id || event.pathParameters?.rideId || "";
     if (!rideId) {
       return jsonResponse(400, { error: "Missing rideId in path parameters" });
     }
@@ -42,15 +49,18 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     const result = await cancelRide(rideId, dynamoClient);
     return jsonResponse(result.statusCode, result.body);
   } catch (error: unknown) {
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      (("name" in error && (error as { name: string }).name === "ConditionalCheckFailedException") ||
-        ("__type" in error && (error as { __type: string }).__type.endsWith("ConditionalCheckFailedException")))
-    ) {
-      return jsonResponse(409, { message: "Ride is no longer cancellable" });
+    if (isConditionalCheckFailed(error)) {
+      return jsonResponse(409, {
+        message: "Ride cannot be cancelled in its current state",
+      });
     }
-    console.error("cancel-ride failed", { error, event });
+    console.error("DynamoDB ride mutation failed", {
+      operation: "cancel-ride",
+      rideId,
+      errorName: error instanceof Error ? error.name : "unknown",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return jsonResponse(500, { message: "Internal server error" });
   }
 };

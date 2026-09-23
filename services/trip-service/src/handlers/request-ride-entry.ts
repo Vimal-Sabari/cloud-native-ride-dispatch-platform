@@ -8,7 +8,12 @@ import { RequestRideBody } from "@ride-dispatch/models";
 import { requestRide } from "./request-ride";
 
 function getTableName(): string {
-  return process.env.DYNAMO_TABLE_NAME || process.env.RIDES_TABLE || "ride-dispatch-platform-local";
+  return (
+    process.env.RIDES_TABLE ||
+    process.env.DYNAMO_TABLE_NAME ||
+    process.env.TABLE_NAME ||
+    "ride-dispatch-platform-local"
+  );
 }
 
 function getEndpoint(): string | undefined {

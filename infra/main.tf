@@ -116,6 +116,8 @@ module "trip_request_ride_lambda" {
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name
     RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
     DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
   }
 }
@@ -135,6 +137,8 @@ module "trip_get_ride_lambda" {
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name
     RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
     DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
   }
 }
@@ -154,6 +158,8 @@ module "trip_cancel_ride_lambda" {
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name
     RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
     DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
   }
 }
@@ -173,6 +179,8 @@ module "trip_list_rider_rides_lambda" {
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name
     RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
     DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
   }
 }
@@ -192,6 +200,8 @@ module "trip_assign_driver_lambda" {
   environment_variables = {
     DYNAMO_TABLE_NAME = module.dynamodb.table_name
     RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
     DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
     INTERNAL_API_KEY  = var.internal_api_key
   }
