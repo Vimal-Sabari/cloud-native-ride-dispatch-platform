@@ -108,3 +108,23 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Graceful Failure Buffer:** 30 seconds provides ample margin for transient network hiccups, HTTP retries, or execution pauses without risking premature visibility expiration (which would cause a duplicate consumer to pick up the same in-flight message prematurely).
 - **Post-Module 28 Load Testing Revision:** This 30-second timeout is a deliberate starting baseline. It must be explicitly re-evaluated and tuned once Module 28's end-to-end load testing yields empirical, observed p99 message processing durations under realistic concurrent load.
 
+## ADR: DynamoDB Streams Event Forwarder Decoupling
+
+**Decision:** Decouple DynamoDB write mutations (driver locations and ride state updates) from SQS event ingestion using an asynchronous Lambda forwarder (`services/event-forwarder`) triggered by DynamoDB Streams (`NEW_AND_OLD_IMAGES`), rather than publishing directly to SQS inside the Location Service and Trip Service HTTP handlers.
+
+**Why:**
+
+- **Handler Latency & Resilience:** Location Service is optimized for high-frequency, bursty ingestion (driver telemetry). Publishing synchronously to SQS within the HTTP request lifecycle increases handler duration and introduces an external network failure point. If SQS experiences throttling or transient downtime, the API request would fail even though the state write was durable.
+- **Transactional Consistency Without 2PC:** DynamoDB Streams captures every durable write committed to the database in guaranteed commit order per shard. This guarantees at-least-once delivery to downstream consumers without requiring distributed two-phase commits across DynamoDB and SQS.
+- **Single Source of Truth:** Decoupling via Streams keeps the mutation handlers focused solely on business validation and persistence, allowing event schema translation and routing rules to evolve independently in the event forwarder.
+
+## ADR: Partial Batch Failure Handling via ReportBatchItemFailures
+
+**Decision:** Configure `function_response_types = ["ReportBatchItemFailures"]` on the DynamoDB Streams event source mapping and return an `events.DynamoDBEventResponse` tracking only failing record identifiers (`ItemIdentifier: record.EventID`).
+
+**Why:**
+
+- **Head-of-Line Blocking Prevention:** By default, if a Lambda consumer of a DynamoDB Stream throws an unhandled error, AWS Lambda retries the entire batch until retention expires or the maximum retry limit is hit, stalling all subsequent records on that shard.
+- **Selective Retries:** With `ReportBatchItemFailures`, only the specific records that encountered an error (e.g. transient SQS delivery error) are marked for redelivery by AWS Lambda. Successfully forwarded or intentionally skipped records are committed and not reprocessed, eliminating redundant work and preventing head-of-line blocking.
+
+

@@ -140,3 +140,25 @@ The ride lifecycle is governed by an explicit finite state machine with strict t
    - **Partition Key (`GSI3PK`):** `DRIVER#<driverId>`
    - **Sort Key (`GSI3SK`):** `ACTIVE_RIDE`
    - **Role:** A sparse index item (`PK: DRIVER#<id>`, `SK: ACTIVE_RIDE_POINTER`) written when a driver is assigned to a ride. Allows the matching engine and notification service to immediately look up a driver's active trip and enforce that a driver can only be assigned to one active ride at a time.
+
+---
+
+## Event Forwarding (DynamoDB Streams to SQS)
+
+The **Event Forwarder** (`services/event-forwarder/`) is a lightweight Go Lambda function listening to the single-table DynamoDB Stream (`NEW_AND_OLD_IMAGES`) and forwarding domain events asynchronously to SQS queues for downstream consumption by the Matching Service.
+
+### Architectural Role
+
+- **Decoupled Ingestion:** Prevents synchronous coupling between database writes (Location Service and Trip Service) and message queue publishing, ensuring API responses are fast and immune to downstream queue availability issues.
+- **Ordered Event Ingestion:** Leverages DynamoDB Stream's guaranteed write ordering per shard to capture real-time state changes without distributed transactions.
+- **Selective Batch Error Handling:** Utilizes `ReportBatchItemFailures` so transient SQS failures only retry the affected record, preventing head-of-line blocking on the DynamoDB stream shard.
+
+### Classification and Routing Rules
+
+| Entity / Condition | Stream Event | Destination Queue | Event Type | Payload Schema |
+|---|---|---|---|---|
+| `SK == "LOCATION"` | `INSERT` \| `MODIFY` | `location-events` | `location-updated` | `{"driverId": string, "geohash": string, "status": string, "lat": number, "lng": number}` |
+| `PK` begins with `RIDE#` & `SK == "DETAILS"` & `NewImage.state == "REQUESTED"` | `INSERT` | `ride-request-events` | `ride-requested` | `{"rideId": string, "riderId": string, "pickup": {"lat": number, "lng": number}}` |
+| `PK` begins with `RIDE#` & `SK == "DETAILS"` & `NewImage.state == "CANCELLED"` & `OldImage.state in ["REQUESTED", "MATCHED"]` | `MODIFY` | `ride-request-events` | `ride-cancelled` | `{"rideId": string}` |
+| Any other record (e.g. `GSI3` pointer, `REMOVE`, intermediate states) | Any | *Ignored* (not forwarded) | *N/A* | *N/A* |
+

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
+if ! command -v go >/dev/null 2>&1; then
+  if [ -d "/c/Program Files/Go/bin" ]; then
+    export PATH="/c/Program Files/Go/bin:$PATH"
+  fi
+fi
+
 if [ -z "$1" ] || [ -z "$2" ]; then
   echo "Error: Missing arguments."
   echo "Usage: $0 <service-dir> <cmd-subdir>"

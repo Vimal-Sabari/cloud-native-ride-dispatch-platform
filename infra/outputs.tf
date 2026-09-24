@@ -83,3 +83,9 @@ output "match_events_topic_arn" {
   value       = module.sqs_sns.match_events_topic_arn
 }
 
+output "event_forwarder_function_arn" {
+  description = "ARN of the DynamoDB Streams event forwarder Lambda function"
+  value       = module.event_forwarder_lambda.function_arn
+}
+
+

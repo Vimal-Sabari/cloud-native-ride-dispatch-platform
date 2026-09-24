@@ -1,6 +1,6 @@
 .PHONY: all up down logs smoke-test lint test fmt lint-go lint-ts test-go test-ts fmt-go fmt-ts tf-init tf-plan tf-validate tf-fmt
 
-GO_MODULES := ./services/location-service/... ./services/matching-service/... ./shared/geospatial/... ./shared/matching-algorithms/... ./shared/models/go/... ./shared/dynamo-client/go/...
+GO_MODULES := ./services/event-forwarder/... ./services/location-service/... ./services/matching-service/... ./shared/geospatial/... ./shared/matching-algorithms/... ./shared/models/go/... ./shared/dynamo-client/go/...
 
 all: lint test
 

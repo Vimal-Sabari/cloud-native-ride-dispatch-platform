@@ -210,6 +210,58 @@ module "trip_assign_driver_lambda" {
 }
 
 
+# Module 16 DynamoDB Streams to SQS Event Forwarder Lambda (Go custom runtime)
+module "event_forwarder_lambda" {
+  source           = "./modules/lambda"
+  runtime          = "provided.al2023"
+  handler          = "bootstrap"
+  artifact_path    = "${path.module}/../services/event-forwarder/event-forwarder.zip"
+  function_name    = "${var.project_name}-${var.environment}-event-forwarder"
+  event_source_arn = module.dynamodb.stream_arn
+  timeout          = 10
+  memory_size      = 128
+
+  environment_variables = {
+    LOCATION_EVENTS_QUEUE_URL     = module.sqs_sns.location_events_queue_url
+    RIDE_REQUEST_EVENTS_QUEUE_URL = module.sqs_sns.ride_request_events_queue_url
+    AWS_ENDPOINT_URL              = var.environment == "local" ? "http://localhost:4566" : ""
+    AWS_REGION                    = var.aws_region
+  }
+}
+
+# Dedicated IAM policy for Event Forwarder Lambda:
+# Grants permissions to read DynamoDB Streams and send messages to destination SQS queues
+resource "aws_iam_role_policy" "event_forwarder_policy" {
+  name = "${var.project_name}-${var.environment}-event-forwarder-policy"
+  role = module.event_forwarder_lambda.role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DescribeStream",
+          "dynamodb:GetRecords",
+          "dynamodb:GetShardIterator",
+          "dynamodb:ListStreams"
+        ]
+        Resource = module.dynamodb.stream_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage"
+        ]
+        Resource = [
+          module.sqs_sns.location_events_queue_arn,
+          module.sqs_sns.ride_request_events_queue_arn
+        ]
+      }
+    ]
+  })
+}
+
 module "ec2_matching" {
   source = "./modules/ec2-matching"
 }

@@ -59,3 +59,16 @@ variable "memory_size" {
   type        = number
   default     = 128
 }
+
+variable "event_source_arn" {
+  description = "Optional ARN of an event source (e.g. DynamoDB Stream or SQS queue) to trigger this Lambda"
+  type        = string
+  default     = ""
+}
+
+variable "event_source_batch_size" {
+  description = "Batch size for the event source mapping"
+  type        = number
+  default     = 10
+}
+

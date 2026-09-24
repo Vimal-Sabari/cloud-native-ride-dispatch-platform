@@ -96,6 +96,10 @@ resource "aws_dynamodb_table" "main" {
     enabled = false
   }
 
+  # DynamoDB Streams enabled for event forwarding
+  stream_enabled   = true
+  stream_view_type = "NEW_AND_OLD_IMAGES"
+
   tags = {
     Environment = var.environment
     Project     = "ride-dispatch-platform"

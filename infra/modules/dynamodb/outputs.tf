@@ -22,3 +22,9 @@ output "gsi3_name" {
   description = "Name of GSI3 (driver active trip guard index)"
   value       = "GSI3"
 }
+
+output "stream_arn" {
+  description = "The ARN of the DynamoDB stream"
+  value       = aws_dynamodb_table.main.stream_arn
+}
+

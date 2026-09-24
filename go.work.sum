@@ -1,4 +1,10 @@
+github.com/aws/aws-sdk-go-v2/config v1.27.0/go.mod h1:cfh8v69nuSUohNFMbIISP2fhmblGmYEOKs5V53HiHnk=
+github.com/aws/aws-sdk-go-v2/credentials v1.17.0/go.mod h1:uT41FIH8cCIxOdUYIL0PYyHlL1NoneDuDSCwg5VE/5o=
+github.com/aws/aws-sdk-go-v2/internal/ini v1.8.0/go.mod h1:8tu/lYfQfFe6IGnaOdrpVgEL2IrrDOf6/m9RQum4NkY=
+github.com/aws/aws-sdk-go-v2/service/sqs v1.34.0 h1:YWyd8KPykQE9YS7M+RTAlVyOmUxXiesIC2WtMMSEnX4=
+github.com/aws/aws-sdk-go-v2/service/sqs v1.34.0/go.mod h1:4kCM5tMCkys9PFbuGHP+LjpxlsA5oMRUs3QvnWo11BM=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/google/go-cmp v0.5.8/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.7.2/go.mod h1:R6va5+xMeoiuVRoj+gSkQ7d3FALtqAAGI1FQKckRals=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
