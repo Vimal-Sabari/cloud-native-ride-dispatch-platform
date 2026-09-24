@@ -47,3 +47,39 @@ output "auth_authorizer_function_arn" {
   description = "ARN of the JWT authorizer Lambda function"
   value       = module.auth_authorizer_lambda.function_arn
 }
+
+output "location_events_queue_url" {
+  description = "URL of the location events SQS queue"
+  value       = module.sqs_sns.location_events_queue_url
+}
+
+output "location_events_queue_arn" {
+  description = "ARN of the location events SQS queue"
+  value       = module.sqs_sns.location_events_queue_arn
+}
+
+output "location_events_dlq_arn" {
+  description = "ARN of the location events Dead Letter Queue"
+  value       = module.sqs_sns.location_events_dlq_arn
+}
+
+output "ride_request_events_queue_url" {
+  description = "URL of the ride-request events SQS queue"
+  value       = module.sqs_sns.ride_request_events_queue_url
+}
+
+output "ride_request_events_queue_arn" {
+  description = "ARN of the ride-request events SQS queue"
+  value       = module.sqs_sns.ride_request_events_queue_arn
+}
+
+output "ride_request_events_dlq_arn" {
+  description = "ARN of the ride-request events Dead Letter Queue"
+  value       = module.sqs_sns.ride_request_events_dlq_arn
+}
+
+output "match_events_topic_arn" {
+  description = "ARN of the SNS topic for match events"
+  value       = module.sqs_sns.match_events_topic_arn
+}
+

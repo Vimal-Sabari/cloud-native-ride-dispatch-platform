@@ -43,7 +43,9 @@ module "dynamodb" {
 }
 
 module "sqs_sns" {
-  source = "./modules/sqs-sns"
+  source       = "./modules/sqs-sns"
+  environment  = var.environment
+  project_name = var.project_name
 }
 
 # Module 8 JWT Authorizer Lambda (TypeScript runtime)

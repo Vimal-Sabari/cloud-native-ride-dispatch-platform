@@ -215,6 +215,9 @@ jobs:
       - name: Run Trip Service End-to-End Integration Test
         run: bash tests/integration/trip-service-test.sh
 
+      - name: Run SQS and SNS Infrastructure Integration Test
+        run: bash tests/integration/sqs-sns-infra-test.sh
+
 
       - name: Teardown Terraform Infrastructure
         if: always()

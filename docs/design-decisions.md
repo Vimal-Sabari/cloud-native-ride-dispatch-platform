@@ -83,3 +83,28 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Simplicity vs. Security:** While AWS IAM SigV4 or mutual TLS (mTLS) provide enterprise-grade service-to-service authentication, configuring SigV4 signing in Go for local LocalStack testing introduces significant client-side signing complexity and AWS credential management without architectural benefit for this demonstration portfolio.
 - **Header Shared Secret:** An `x-internal-api-key` header checked at the handler entrance ensures unauthenticated external callers cannot invoke internal assignment endpoints, while keeping the client integration in the Go matching daemon completely standard HTTP with minimal boilerplate.
 - **Production Evolution:** In a production multi-account AWS architecture, this endpoint would either reside on a private API Gateway inside an internal VPC with VPC endpoints and IAM authorization (`aws_iam` authorizer), or communicate asynchronously via an Amazon SQS queue or EventBridge event bus.
+
+## ADR: One SNS Topic for All Notification-Worthy Events
+
+**Decision:** Maintain a single SNS topic (`${project_name}-${environment}-match-events`) carrying both initial "driver matched" events and subsequent ride-status-change events that Notification Service needs to fan out to connected clients, rather than creating separate fine-grained topics per event type.
+
+**Why:**
+
+- **Single Downstream Consumer:** In the current platform architecture, Notification Service is the sole consumer of match and ride lifecycle transition events.
+- **Low Overhead & Free-Tier Efficiency:** Creating multiple specialized SNS topics (e.g. `driver-matched-topic`, `ride-status-changed-topic`) introduces infrastructural complexity, requires additional IAM policies, and consumes unnecessary management overhead without architectural justification at this project's scale.
+- **Filtering & Extensibility:** SNS message attributes allow consumers to perform client-side or subscription-level filtering if required. If a second, distinct consumer with independent filtering or strict access-boundary requirements is introduced in the future, this decision can be revisited to decompose the topic.
+
+## ADR: SQS Visibility Timeout Sizing for Matching Service
+
+**Decision:** Set `visibility_timeout_seconds = 30` on both `location-events` and `ride-request-events` standard SQS queues.
+
+**Why:**
+
+- **Workload Estimation:** A 30-second visibility timeout is sized around the Matching Service's worst-case processing envelope for a single message or small batch:
+  1. Parsing and querying the in-memory geospatial candidate index (~1–5ms).
+  2. Running the matching strategy (naive candidate selection or Hungarian assignment cost matrix computation, up to 100–500ms).
+  3. Attempting an atomic DynamoDB conditional write to mark the driver as `busy`/`en_route` (~10–30ms).
+  4. Performing a synchronous HTTP callback to Trip Service (`POST /internal/rides/{id}/assign-driver`) with network jitter and potential retries (up to 2–5 seconds).
+- **Graceful Failure Buffer:** 30 seconds provides ample margin for transient network hiccups, HTTP retries, or execution pauses without risking premature visibility expiration (which would cause a duplicate consumer to pick up the same in-flight message prematurely).
+- **Post-Module 28 Load Testing Revision:** This 30-second timeout is a deliberate starting baseline. It must be explicitly re-evaluated and tuned once Module 28's end-to-end load testing yields empirical, observed p99 message processing durations under realistic concurrent load.
+
