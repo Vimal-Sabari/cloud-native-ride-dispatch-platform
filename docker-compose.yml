@@ -11,10 +11,10 @@ services:
       - localstack-data:/var/lib/localstack
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
-      interval: 5s
+      test: ["CMD", "awslocal", "s3", "ls"]
+      interval: 2s
       timeout: 5s
-      retries: 10
+      retries: 30
       start_period: 10s
 
 volumes:

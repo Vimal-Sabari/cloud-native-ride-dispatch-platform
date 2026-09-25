@@ -165,7 +165,9 @@ jobs:
         run: docker compose up -d
 
       - name: Wait for LocalStack
-        run: bash scripts/wait-for-localstack.sh
+        run: |
+          bash scripts/wait-for-localstack.sh
+          sleep 10
 
       - name: Run LocalStack Smoke Test
         run: bash scripts/smoke-test-localstack.sh
@@ -192,14 +194,25 @@ jobs:
           terraform init
           export TF_LOG=DEBUG
           export TF_LOG_PATH=/tmp/terraform.log
-          terraform plan -input=false -var-file=local.tfvars -out=tfplan
-          terraform apply -input=false tfplan || {
-            echo "=== TERRAFORM DEBUG LOGS ==="
-            cat /tmp/terraform.log | tail -n 250
-            echo "=== LOCALSTACK CONTAINER LOGS ==="
-            docker logs ride-dispatch-localstack --tail 200
-            exit 1
-          }
+          
+          # Retry logic
+          for i in {1..3}; do
+            echo "Terraform apply attempt $i/3..."
+            if terraform plan -input=false -var-file=local.tfvars -out=tfplan && \
+               terraform apply -input=false tfplan; then
+              echo "Terraform apply succeeded"
+              break
+            elif [ $i -eq 3 ]; then
+              echo "=== TERRAFORM DEBUG LOGS ==="
+              cat /tmp/terraform.log | tail -n 250
+              echo "=== LOCALSTACK CONTAINER LOGS ==="
+              docker logs ride-dispatch-localstack --tail 200
+              exit 1
+            else
+              echo "Attempt $i failed, retrying..."
+              sleep 5
+            fi
+          done
 
       - name: Run DynamoDB Schema Integration Test
         run: bash tests/integration/dynamodb-schema-test.sh
