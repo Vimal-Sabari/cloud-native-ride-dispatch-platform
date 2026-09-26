@@ -60,6 +60,12 @@ variable "memory_size" {
   default     = 128
 }
 
+variable "enable_event_source_mapping" {
+  description = "Whether to create an event source mapping for this Lambda function"
+  type        = bool
+  default     = false
+}
+
 variable "event_source_arn" {
   description = "Optional ARN of an event source (e.g. DynamoDB Stream or SQS queue) to trigger this Lambda"
   type        = string

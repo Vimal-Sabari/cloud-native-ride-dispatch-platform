@@ -96,7 +96,7 @@ resource "aws_lambda_function" "this" {
 
 # Optional event source mapping (e.g. for DynamoDB Streams or SQS)
 resource "aws_lambda_event_source_mapping" "this" {
-  count                   = var.event_source_arn != "" ? 1 : 0
+  count                   = var.enable_event_source_mapping ? 1 : 0
   event_source_arn        = var.event_source_arn
   function_name           = aws_lambda_function.this.arn
   starting_position       = "LATEST"
