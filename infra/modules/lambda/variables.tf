@@ -78,3 +78,10 @@ variable "event_source_batch_size" {
   default     = 10
 }
 
+variable "depends_on_resources" {
+  description = "Optional list of resources to depend on before creating event source mapping"
+  type        = any
+  default     = []
+}
+
+

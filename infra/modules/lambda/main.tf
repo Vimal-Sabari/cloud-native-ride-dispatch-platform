@@ -102,5 +102,10 @@ resource "aws_lambda_event_source_mapping" "this" {
   starting_position       = "LATEST"
   batch_size              = var.event_source_batch_size
   function_response_types = ["ReportBatchItemFailures"]
+
+  depends_on = [
+    aws_lambda_function.this,
+    var.depends_on_resources
+  ]
 }
 

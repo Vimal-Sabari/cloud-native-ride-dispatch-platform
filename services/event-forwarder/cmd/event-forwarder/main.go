@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -23,11 +24,32 @@ type sqsClientWrapper struct {
 }
 
 func (w *sqsClientWrapper) SendMessage(ctx context.Context, queueURL string, body string) error {
+	normalizedURL := normalizeQueueURL(queueURL)
 	_, err := w.client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:    aws.String(queueURL),
+		QueueUrl:    aws.String(normalizedURL),
 		MessageBody: aws.String(body),
 	})
 	return err
+}
+
+// normalizeQueueURL rewrites the scheme and host of a queue URL to match AWS_ENDPOINT_URL
+// if AWS_ENDPOINT_URL is configured (e.g. rewriting localhost:4566 to localstack:4566).
+func normalizeQueueURL(raw string) string {
+	endpoint := os.Getenv("AWS_ENDPOINT_URL")
+	if endpoint == "" {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	configured, err := url.Parse(endpoint)
+	if err != nil {
+		return raw
+	}
+	parsed.Scheme = configured.Scheme
+	parsed.Host = configured.Host
+	return parsed.String()
 }
 
 type handler struct {
@@ -36,9 +58,14 @@ type handler struct {
 }
 
 func newSQSSender(ctx context.Context, endpoint string) (forward.SQSSender, error) {
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "us-east-1"
+	}
+
 	if endpoint != "" {
 		cfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion("us-east-1"),
+			config.WithRegion(region),
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 		)
 		if err != nil {

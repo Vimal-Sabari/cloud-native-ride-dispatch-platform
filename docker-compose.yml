@@ -7,6 +7,10 @@ services:
     environment:
       - DEFAULT_REGION=us-east-1
       - PERSISTENCE=1
+      - MAIN_DOCKER_NETWORK=ride-dispatch
+    hostname: localstack
+    networks:
+      - ride-dispatch
     volumes:
       - localstack-data:/var/lib/localstack
       - /var/run/docker.sock:/var/run/docker.sock
@@ -16,6 +20,10 @@ services:
       timeout: 5s
       retries: 30
       start_period: 10s
+
+networks:
+  ride-dispatch:
+    name: ride-dispatch
 
 volumes:
   localstack-data:
