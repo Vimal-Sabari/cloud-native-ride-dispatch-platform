@@ -158,20 +158,32 @@ echo "$ITEM_JSON"
 # Extract and assert fields
 GSI1PK=$(echo "$ITEM_JSON" | node -e "
 const fs = require('fs');
-const d = JSON.parse(fs.readFileSync(0, 'utf-8'));
-console.log(d.Item && d.Item.GSI1PK ? d.Item.GSI1PK.S : 'NOT_FOUND');
+try {
+  const d = JSON.parse(fs.readFileSync(0, 'utf-8'));
+  console.log(d.Item && d.Item.GSI1PK ? d.Item.GSI1PK.S : 'NOT_FOUND');
+} catch (e) {
+  console.log('NOT_FOUND');
+}
 ")
 
 GSI1SK=$(echo "$ITEM_JSON" | node -e "
 const fs = require('fs');
-const d = JSON.parse(fs.readFileSync(0, 'utf-8'));
-console.log(d.Item && d.Item.GSI1SK ? d.Item.GSI1SK.S : 'NOT_FOUND');
+try {
+  const d = JSON.parse(fs.readFileSync(0, 'utf-8'));
+  console.log(d.Item && d.Item.GSI1SK ? d.Item.GSI1SK.S : 'NOT_FOUND');
+} catch (e) {
+  console.log('NOT_FOUND');
+}
 ")
 
 STATUS=$(echo "$ITEM_JSON" | node -e "
 const fs = require('fs');
-const d = JSON.parse(fs.readFileSync(0, 'utf-8'));
-console.log(d.Item && d.Item.Status ? d.Item.Status.S : (d.Item && d.Item.status ? d.Item.status.S : 'NOT_FOUND'));
+try {
+  const d = JSON.parse(fs.readFileSync(0, 'utf-8'));
+  console.log(d.Item && d.Item.Status ? d.Item.Status.S : (d.Item && d.Item.status ? d.Item.status.S : 'NOT_FOUND'));
+} catch (e) {
+  console.log('NOT_FOUND');
+}
 ")
 
 EXPECTED_GSI1PK="GEOHASH#9q8yy"
@@ -208,6 +220,8 @@ if [ "$FAILED" -eq 0 ]; then
 else
   echo "========================================================"
   echo "INTEGRATION TEST SUITE FAILED!"
+  echo "=== LOCALSTACK & LAMBDA CONTAINER LOGS ==="
+  docker logs ride-dispatch-localstack --tail 150 || true
   echo "========================================================"
   exit 1
 fi

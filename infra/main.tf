@@ -59,7 +59,8 @@ module "auth_authorizer_lambda" {
   memory_size   = 128
 
   environment_variables = {
-    JWT_SECRET = "dev-jwt-secret-for-ride-dispatch-local-testing"
+    JWT_SECRET        = "dev-jwt-secret-for-ride-dispatch-local-testing"
+    DENY_UNAUTHORIZED = "true"
   }
 }
 
@@ -76,8 +77,13 @@ module "location_update_location_lambda" {
   memory_size            = 128
 
   environment_variables = {
-    DYNAMO_TABLE_NAME = module.dynamodb.table_name
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    DYNAMODB_TABLE      = module.dynamodb.table_name
+    TABLE_NAME          = module.dynamodb.table_name
+    DYNAMO_TABLE_NAME   = module.dynamodb.table_name
+    AWS_REGION          = var.aws_region
+    AWS_ENDPOINT_URL    = var.environment == "local" ? "http://localstack:4566" : ""
+    LOCALSTACK_ENDPOINT = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT     = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -94,8 +100,13 @@ module "location_update_status_lambda" {
   memory_size            = 128
 
   environment_variables = {
-    DYNAMO_TABLE_NAME = module.dynamodb.table_name
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    DYNAMODB_TABLE      = module.dynamodb.table_name
+    TABLE_NAME          = module.dynamodb.table_name
+    DYNAMO_TABLE_NAME   = module.dynamodb.table_name
+    AWS_REGION          = var.aws_region
+    AWS_ENDPOINT_URL    = var.environment == "local" ? "http://localstack:4566" : ""
+    LOCALSTACK_ENDPOINT = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT     = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -120,7 +131,8 @@ module "trip_request_ride_lambda" {
     RIDES_TABLE       = module.dynamodb.table_name
     TABLE_NAME        = module.dynamodb.table_name
     AWS_REGION        = var.aws_region
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -141,7 +153,8 @@ module "trip_get_ride_lambda" {
     RIDES_TABLE       = module.dynamodb.table_name
     TABLE_NAME        = module.dynamodb.table_name
     AWS_REGION        = var.aws_region
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -162,7 +175,8 @@ module "trip_cancel_ride_lambda" {
     RIDES_TABLE       = module.dynamodb.table_name
     TABLE_NAME        = module.dynamodb.table_name
     AWS_REGION        = var.aws_region
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -183,7 +197,8 @@ module "trip_list_rider_rides_lambda" {
     RIDES_TABLE       = module.dynamodb.table_name
     TABLE_NAME        = module.dynamodb.table_name
     AWS_REGION        = var.aws_region
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -204,7 +219,8 @@ module "trip_assign_driver_lambda" {
     RIDES_TABLE       = module.dynamodb.table_name
     TABLE_NAME        = module.dynamodb.table_name
     AWS_REGION        = var.aws_region
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localhost:4566" : ""
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
     INTERNAL_API_KEY  = var.internal_api_key
   }
 }

@@ -372,6 +372,39 @@ resource "aws_lambda_permission" "trip_assign_driver" {
 }
 
 # ------------------------------------------------------------------------------
+# Gateway Responses (Standard 401 and 403 error formats)
+# ------------------------------------------------------------------------------
+
+resource "aws_api_gateway_gateway_response" "unauthorized" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  response_type = "UNAUTHORIZED"
+  status_code   = "401"
+
+  response_templates = {
+    "application/json" = "{\"message\":\"Unauthorized\"}"
+  }
+}
+
+resource "aws_api_gateway_gateway_response" "access_denied" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  response_type = "ACCESS_DENIED"
+  status_code   = "403"
+
+  response_templates = {
+    "application/json" = "{\"message\":\"Access Denied\"}"
+  }
+}
+
+resource "aws_api_gateway_gateway_response" "default_4xx" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  response_type = "DEFAULT_4XX"
+
+  response_templates = {
+    "application/json" = "{\"message\":$context.error.messageString}"
+  }
+}
+
+# ------------------------------------------------------------------------------
 # Deployment & Stage
 # ------------------------------------------------------------------------------
 
@@ -380,6 +413,11 @@ resource "aws_api_gateway_deployment" "main" {
 
   triggers = {
     redeployment = sha1(jsonencode([
+      # Gateway responses
+      aws_api_gateway_gateway_response.unauthorized.id,
+      aws_api_gateway_gateway_response.access_denied.id,
+      aws_api_gateway_gateway_response.default_4xx.id,
+
       # Location Service resources & methods
       aws_api_gateway_resource.drivers.id,
       aws_api_gateway_resource.driver_id.id,
@@ -420,6 +458,9 @@ resource "aws_api_gateway_deployment" "main" {
   }
 
   depends_on = [
+    aws_api_gateway_gateway_response.unauthorized,
+    aws_api_gateway_gateway_response.access_denied,
+    aws_api_gateway_gateway_response.default_4xx,
     aws_api_gateway_integration.location_post,
     aws_api_gateway_integration.status_post,
     aws_api_gateway_integration.request_ride_post,

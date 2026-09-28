@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -69,7 +70,16 @@ func newLocationHandler(writer handler.DynamoWriter) func(ctx context.Context, e
 			}, nil
 		}
 
-		code, respBody, _ := handler.HandleUpdateLocation(ctx, driverID, req, writer)
+		code, respBody, err := handler.HandleUpdateLocation(ctx, driverID, req, writer)
+		if err != nil {
+			log.Printf("Error updating location: %v", err)
+			return events.APIGatewayProxyResponse{
+				StatusCode: 500,
+				Headers:    map[string]string{"Content-Type": "application/json"},
+				Body:       fmt.Sprintf(`{"message": "Internal server error", "error": "%v"}`, err),
+			}, nil
+		}
+
 		respBytes, _ := json.Marshal(respBody)
 
 		return events.APIGatewayProxyResponse{
@@ -81,18 +91,33 @@ func newLocationHandler(writer handler.DynamoWriter) func(ctx context.Context, e
 }
 
 func getClientFromEnv(ctx context.Context) (*dynamoclient.Client, error) {
-	tableName := os.Getenv("DYNAMO_TABLE_NAME")
+	tableName := os.Getenv("DYNAMODB_TABLE")
+	if tableName == "" {
+		tableName = os.Getenv("DYNAMO_TABLE_NAME")
+	}
+	if tableName == "" {
+		tableName = os.Getenv("TABLE_NAME")
+	}
 	if tableName == "" {
 		tableName = "ride-dispatch-table"
 	}
-	endpoint := os.Getenv("DYNAMO_ENDPOINT")
 
-	// LocalStack container resolution: when running inside a Lambda container in LocalStack,
-	// localhost is unreachable. Instead, use the injected AWS_ENDPOINT_URL or LOCALSTACK_HOSTNAME.
-	if awsEndpoint := os.Getenv("AWS_ENDPOINT_URL"); awsEndpoint != "" {
-		endpoint = awsEndpoint
-	} else if localstackHost := os.Getenv("LOCALSTACK_HOSTNAME"); localstackHost != "" {
-		endpoint = fmt.Sprintf("http://%s:4566", localstackHost)
+	endpoint := os.Getenv("AWS_ENDPOINT_URL")
+	if endpoint == "" {
+		endpoint = os.Getenv("LOCALSTACK_ENDPOINT")
+	}
+	if endpoint == "" {
+		endpoint = os.Getenv("DYNAMO_ENDPOINT")
+	}
+
+	// LocalStack container resolution: when running inside a Lambda container in LocalStack Docker network,
+	// localhost is unreachable. Instead, use the injected AWS_ENDPOINT_URL or LOCALSTACK_HOSTNAME or default to localstack.
+	if strings.Contains(endpoint, "localhost") || endpoint == "" {
+		if localstackHost := os.Getenv("LOCALSTACK_HOSTNAME"); localstackHost != "" {
+			endpoint = fmt.Sprintf("http://%s:4566", localstackHost)
+		} else if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+			endpoint = "http://localstack:4566"
+		}
 	}
 
 	return dynamoclient.NewClient(ctx, tableName, endpoint)

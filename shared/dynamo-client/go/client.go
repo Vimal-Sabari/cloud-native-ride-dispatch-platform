@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -24,8 +25,12 @@ type Client struct {
 // it configures static dummy credentials ("test", "test") and region "us-east-1".
 func NewClient(ctx context.Context, tableName string, endpoint string) (*Client, error) {
 	if endpoint != "" {
+		region := os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "us-east-1"
+		}
 		cfg, err := config.LoadDefaultConfig(ctx,
-			config.WithRegion("us-east-1"),
+			config.WithRegion(region),
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 		)
 		if err != nil {

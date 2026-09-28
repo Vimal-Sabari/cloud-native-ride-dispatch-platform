@@ -16,18 +16,47 @@ import { verifyToken } from "./jwt-utils";
  *    policy produces an HTTP 403 Forbidden instead, which is semantically incorrect when a
  *    caller provides an invalid, missing, or expired authentication token.
  */
+function generatePolicy(
+  principalId: string,
+  effect: "Allow" | "Deny",
+  resource: string,
+  context?: Record<string, string>
+): APIGatewayAuthorizerResult {
+  return {
+    principalId,
+    policyDocument: {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "execute-api:Invoke",
+          Effect: effect,
+          Resource: resource || "*",
+        },
+      ],
+    },
+    context,
+  };
+}
+
 export async function handler(
   event: APIGatewayTokenAuthorizerEvent
 ): Promise<APIGatewayAuthorizerResult> {
+  const shouldDenyOnUnauthorized = process.env.DENY_UNAUTHORIZED === "true";
   const rawToken = event.authorizationToken;
 
   if (!rawToken || typeof rawToken !== "string") {
+    if (shouldDenyOnUnauthorized) {
+      return generatePolicy("unauthorized", "Deny", event.methodArn || "*");
+    }
     throw new Error("Unauthorized");
   }
 
   // Strip optional 'Bearer ' prefix (case-insensitive)
   const token = rawToken.replace(/^Bearer\s+/i, "").trim();
   if (!token) {
+    if (shouldDenyOnUnauthorized) {
+      return generatePolicy("unauthorized", "Deny", event.methodArn || "*");
+    }
     throw new Error("Unauthorized");
   }
 
@@ -35,26 +64,15 @@ export async function handler(
   try {
     decoded = verifyToken(token);
   } catch {
+    if (shouldDenyOnUnauthorized) {
+      return generatePolicy("unauthorized", "Deny", event.methodArn || "*");
+    }
     // API Gateway requires throwing "Unauthorized" to trigger a 401 response
     throw new Error("Unauthorized");
   }
 
-  return {
-    principalId: decoded.sub,
-    policyDocument: {
-      Version: "2012-10-17",
-      Statement: [
-        {
-          Action: "execute-api:Invoke",
-          Effect: "Allow",
-          Resource: event.methodArn,
-        },
-      ],
-    },
-    // Note: API Gateway authorizer context values MUST be strings
-    context: {
-      sub: String(decoded.sub),
-      role: String(decoded.role),
-    },
-  };
+  return generatePolicy(decoded.sub, "Allow", event.methodArn, {
+    sub: String(decoded.sub),
+    role: String(decoded.role),
+  });
 }
