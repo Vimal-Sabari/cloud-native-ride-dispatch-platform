@@ -12,7 +12,7 @@ services:
       - LOCALSTACK_CONTAINER_NAME=ride-dispatch-localstack
       - MAIN_CONTAINER_NAME=ride-dispatch-localstack
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - SERVICES=dynamodb,lambda,apigateway,s3,sqs,sns
+      - SERVICES=iam,sts,dynamodb,lambda,apigateway,s3,sqs,sns,logs,cloudwatch
       - DEBUG=1
     hostname: localstack
     networks:
