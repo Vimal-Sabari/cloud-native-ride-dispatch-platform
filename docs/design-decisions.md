@@ -147,5 +147,16 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Known Limitation & Trade-off (Failed Revert):**
   If the compensation revert itself fails (e.g. network partition, DynamoDB throttling, or crash), the driver remains stuck in `busy` status. This is an accepted distributed systems trade-off for this architecture. Instead of introducing heavy distributed transaction coordinators (e.g. two-phase commit or a centralized Saga coordinator), this condition is logged at `ERROR` level with driver and ride identifiers. It is treated as a known, rare inconsistency to be resolved by the asynchronous TTL sweeper and state reconciliation daemon (Module 27).
 
+## ADR: Local Testing Runs Matching Service as a Plain OS Process, Not Emulated EC2
+
+**Decision:** During local development, CI runs, and automated integration tests against LocalStack, Matching Service executes as a plain background OS process (`nohup ... &` or direct binary invocation) configured via environment variables pointing to LocalStack endpoints, rather than provisioning a virtualized EC2 instance inside LocalStack.
+
+**Why:**
+
+- **LocalStack Community Tier Limitations:** LocalStack Community edition does not support full EC2 virtual machine execution. While mock EC2 control plane APIs exist in certain tiers, running genuine compute instances with networking, systemd, and process isolation requires LocalStack Pro or external Docker orchestration.
+- **Fidelity of Application Logic:** Matching Service's core behavior depends on SQS polling, DynamoDB reads/writes, HTTP calls to Trip Service API Gateway, and in-memory geo-indexing. Running the compiled Go binary directly on the test host exercises the exact same SDK calls, network protocols, concurrency semantics, and configuration contract as a production systemd daemon, without artificial emulation overhead or slow VM bootstrap times.
+- **Clear Separation of Concerns:** EC2 infrastructure code in `infra/modules/ec2-matching/` (IAM roles, egress-only security group, and `t2.micro` instance) is validated via `terraform validate` and `terraform fmt` and conditionally enabled for real AWS deployments (`count = var.environment == "local" ? 0 : 1`). Genuine EC2 provisioning and systemd service bootstrap are validated against real AWS in Module 29.
+
+
 
 

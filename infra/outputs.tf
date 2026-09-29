@@ -88,4 +88,15 @@ output "event_forwarder_function_arn" {
   value       = module.event_forwarder_lambda.function_arn
 }
 
+output "matching_service_instance_id" {
+  description = "The EC2 instance ID for Matching Service (empty in local environment)"
+  value       = module.ec2_matching.instance_id
+}
+
+output "matching_service_public_ip" {
+  description = "Public IP address of the Matching Service EC2 instance"
+  value       = module.ec2_matching.public_ip
+}
+
+
 

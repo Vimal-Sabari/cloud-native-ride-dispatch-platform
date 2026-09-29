@@ -4,7 +4,15 @@ set -e
 if ! command -v go >/dev/null 2>&1; then
   if [ -d "/c/Program Files/Go/bin" ]; then
     export PATH="/c/Program Files/Go/bin:$PATH"
+  elif [ -d "/mnt/c/Program Files/Go/bin" ]; then
+    export PATH="/mnt/c/Program Files/Go/bin:$PATH"
   fi
+fi
+
+if ! command -v go >/dev/null 2>&1 && command -v go.exe >/dev/null 2>&1; then
+  go() {
+    go.exe "$@"
+  }
 fi
 
 if [ -z "$1" ] || [ -z "$2" ]; then

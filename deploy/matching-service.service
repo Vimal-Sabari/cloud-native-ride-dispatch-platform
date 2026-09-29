@@ -1,0 +1,13 @@
+[Unit]
+Description=Ride Dispatch Matching Service
+After=network.target
+
+[Service]
+ExecStart=/opt/matching-service/matching-service
+EnvironmentFile=/etc/matching-service/env
+Restart=always
+RestartSec=5
+User=matching-service
+
+[Install]
+WantedBy=multi-user.target

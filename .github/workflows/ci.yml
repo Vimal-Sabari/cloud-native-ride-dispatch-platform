@@ -235,6 +235,8 @@ jobs:
       - name: Run Event Forwarder Integration Test
         run: bash tests/integration/event-forwarder-test.sh
 
+      - name: Run Matching Service End-to-End Integration Test
+        run: bash tests/integration/matching-service-e2e-test.sh
 
       - name: Teardown Terraform Infrastructure
         if: always()

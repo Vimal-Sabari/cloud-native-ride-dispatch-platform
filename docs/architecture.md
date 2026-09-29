@@ -162,3 +162,35 @@ The **Event Forwarder** (`services/event-forwarder/`) is a lightweight Go Lambda
 | `PK` begins with `RIDE#` & `SK == "DETAILS"` & `NewImage.state == "CANCELLED"` & `OldImage.state in ["REQUESTED", "MATCHED"]` | `MODIFY` | `ride-request-events` | `ride-cancelled` | `{"rideId": string}` |
 | Any other record (e.g. `GSI3` pointer, `REMOVE`, intermediate states) | Any | *Ignored* (not forwarded) | *N/A* | *N/A* |
 
+---
+
+## Matching Service
+
+The **Matching Service** (`services/matching-service/`) is a continuous daemon written in Go that pairs incoming ride requests with nearby available drivers. It consumes asynchronous domain events from SQS queues (`location-events` and `ride-request-events`), maintains an in-memory spatial index, evaluates nearest-driver heuristics, and confirms matches via a two-phase claim-then-confirm protocol against DynamoDB and Trip Service.
+
+### In-Memory Index & Persistence Note
+
+> [!IMPORTANT]
+> **In-memory index has no persistence across restarts:** The spatial `GeoIndex` is maintained purely in memory as a map of geohash cells and driver entries for $O(1)$ low-latency candidate queries. When the Matching Service process restarts (e.g., during deployments, crashes, or autoscaling), the in-memory index starts empty. It rapidly repopulates as drivers emit periodic heartbeat telemetry via Location Service (which forwards to `location-events` SQS). For immediate post-restart warm-up or cold-start scenarios, a snapshot hydration mechanism is planned for subsequent iterations.
+
+### Core Processing Loops
+
+1. **Location Events Loop:**
+   - Long-polls `location-events` SQS queue (`WaitTimeSeconds = 20`).
+   - Receives `location-updated` events emitted by the DynamoDB Streams forwarder.
+   - Upserts driver coordinate and status (`available`, `busy`, `offline`) in `GeoIndex`.
+   - On processing error, leaves message on queue for redrive to DLQ.
+   - Deletes successfully processed messages.
+
+2. **Ride Request Events Loop:**
+   - Long-polls `ride-request-events` SQS queue (`WaitTimeSeconds = 20`).
+   - For `ride-requested` events:
+     - Queries `GeoIndex` for available drivers in the pickup's geohash and its 8 neighbor cells.
+     - Ranks candidate drivers using Haversine distance (`NaiveNearestMatcher`, top 3 candidates).
+     - Executes two-phase claim-then-confirm assignment:
+       - Conditionally claims candidate in DynamoDB (`#status = :available` $\rightarrow$ `"busy"`).
+       - Confirms match with Trip Service (`POST /internal/rides/{id}/assign-driver`).
+       - If Trip Service call fails, executes compensating revert (`#status = :busy` $\rightarrow$ `"available"`).
+   - For `ride-cancelled` events:
+     - Acknowledges event; Trip Service state machine prevents cancelled rides from being assigned.
+   - Deletes successfully processed messages.

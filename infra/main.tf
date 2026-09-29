@@ -282,7 +282,12 @@ module "event_forwarder_lambda" {
 
 
 module "ec2_matching" {
-  source = "./modules/ec2-matching"
+  source                        = "./modules/ec2-matching"
+  project_name                  = var.project_name
+  environment                   = var.environment
+  dynamodb_table_arn            = module.dynamodb.table_arn
+  location_events_queue_arn     = module.sqs_sns.location_events_queue_arn
+  ride_request_events_queue_arn = module.sqs_sns.ride_request_events_queue_arn
 }
 
 module "api_gateway" {
