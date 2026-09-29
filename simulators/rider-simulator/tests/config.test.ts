@@ -39,6 +39,7 @@ describe('config module', () => {
 
     const config = loadConfig();
     expect(config.riderCount).toBe(3);
+    expect(config.riderIdPrefix).toBe('');
     expect(config.areaCenterLat).toBe(37.7749);
     expect(config.areaCenterLng).toBe(-122.4194);
     expect(config.areaRadiusMeters).toBe(3000);
@@ -53,6 +54,7 @@ describe('config module', () => {
     process.env.TRIP_SERVICE_BASE_URL = 'http://localhost:4566/trips';
     process.env.AUTH_SERVICE_BASE_URL = 'http://localhost:4566/auth';
     process.env.RIDER_COUNT = '8';
+    process.env.RIDER_ID_PREFIX = 'test-rider-run';
     process.env.AREA_CENTER_LAT = '40.7128';
     process.env.AREA_CENTER_LNG = '-74.0060';
     process.env.AREA_RADIUS_METERS = '4500';
@@ -62,6 +64,7 @@ describe('config module', () => {
 
     const config = loadConfig();
     expect(config.riderCount).toBe(8);
+    expect(config.riderIdPrefix).toBe('test-rider-run');
     expect(config.areaCenterLat).toBe(40.7128);
     expect(config.areaCenterLng).toBe(-74.006);
     expect(config.areaRadiusMeters).toBe(4500);

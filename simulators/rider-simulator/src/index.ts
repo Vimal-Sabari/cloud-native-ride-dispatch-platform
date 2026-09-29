@@ -43,7 +43,9 @@ async function main(): Promise<void> {
 
   const riderPromises: Promise<void>[] = [];
   for (let i = 1; i <= config.riderCount; i++) {
-    const riderId = `sim-rider-${i}`;
+    const riderId = config.riderIdPrefix
+      ? `${config.riderIdPrefix}-rider-${i}`
+      : `sim-rider-${i}`;
     riderPromises.push(runRiderLoop(riderId, config, signal));
   }
 

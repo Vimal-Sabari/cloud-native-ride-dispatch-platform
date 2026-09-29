@@ -18,7 +18,8 @@ export default tseslint.config(
       'shared/geospatial/**',
       'shared/matching-algorithms/**',
       'shared/models/go/**',
-      'shared/dynamo-client/go/**'
+      'shared/dynamo-client/go/**',
+      'tests/integration/**'
     ]
   }
 );

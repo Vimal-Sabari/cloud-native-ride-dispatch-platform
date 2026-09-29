@@ -6,6 +6,7 @@
 
 export interface Config {
   riderCount: number;
+  riderIdPrefix: string;
   areaCenterLat: number;
   areaCenterLng: number;
   areaRadiusMeters: number;
@@ -110,8 +111,11 @@ export function loadConfig(): Config {
     throw new Error('MAX_POLL_ATTEMPTS must be a positive integer');
   }
 
+  const riderIdPrefix = process.env.RIDER_ID_PREFIX?.trim() || '';
+
   return {
     riderCount,
+    riderIdPrefix,
     areaCenterLat,
     areaCenterLng,
     areaRadiusMeters,

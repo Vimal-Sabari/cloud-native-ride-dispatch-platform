@@ -40,7 +40,9 @@ async function main(): Promise<void> {
 
   const driverPromises: Promise<void>[] = [];
   for (let i = 1; i <= config.driverCount; i++) {
-    const driverId = `sim-driver-${i}`;
+    const driverId = config.driverIdPrefix
+      ? `${config.driverIdPrefix}-driver-${i}`
+      : `sim-driver-${i}`;
     driverPromises.push(runDriverLoop(driverId, config, signal));
   }
 

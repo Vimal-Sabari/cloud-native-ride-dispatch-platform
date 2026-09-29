@@ -235,8 +235,20 @@ jobs:
       - name: Run Event Forwarder Integration Test
         run: bash tests/integration/event-forwarder-test.sh
 
-      - name: Run Matching Service End-to-End Integration Test
+      # Module 18: Fast single-driver/single-rider smoke test
+      - name: Run Matching Service Smoke End-to-End Test
         run: bash tests/integration/matching-service-e2e-test.sh
+
+      # Module 19: Full multi-agent stochastic verification using both Driver and Rider Simulators
+      # Both tests coexist intentionally: the narrow smoke test provides rapid failure diagnosis on basic
+      # wiring, while this full test provides confidence that concurrent multi-agent traffic converges.
+      - name: Run Full End-to-End Naive Flow Verification (Simulators)
+        env:
+          DRIVER_COUNT: "5"
+          RIDER_COUNT: "3"
+          RUN_DURATION_SECONDS: "45"
+          MIN_MATCH_SUCCESS_RATE: "0.5"
+        run: bash tests/integration/e2e-naive-flow-test.sh
 
       - name: Teardown Terraform Infrastructure
         if: always()

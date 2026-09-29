@@ -6,6 +6,7 @@
 
 export interface Config {
   driverCount: number;
+  driverIdPrefix: string;
   cityCenterLat: number;
   cityCenterLng: number;
   areaRadiusMeters: number;
@@ -99,8 +100,11 @@ export function loadConfig(): Config {
     );
   }
 
+  const driverIdPrefix = process.env.DRIVER_ID_PREFIX?.trim() || '';
+
   return {
     driverCount,
+    driverIdPrefix,
     cityCenterLat,
     cityCenterLng,
     areaRadiusMeters,
