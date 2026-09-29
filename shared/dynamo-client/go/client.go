@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -133,6 +134,32 @@ func (c *Client) ConditionalPutItem(ctx context.Context, item map[string]types.A
 		TableName:           aws.String(c.tableName),
 		Item:                item,
 		ConditionExpression: aws.String(conditionExpression),
+	}
+
+	var names map[string]string
+	var values map[string]types.AttributeValue
+
+	if strings.Contains(conditionExpression, "#status") {
+		names = map[string]string{"#status": "Status"}
+	}
+	if strings.Contains(conditionExpression, ":available") {
+		if values == nil {
+			values = make(map[string]types.AttributeValue)
+		}
+		values[":available"] = &types.AttributeValueMemberS{Value: "available"}
+	}
+	if strings.Contains(conditionExpression, ":busy") {
+		if values == nil {
+			values = make(map[string]types.AttributeValue)
+		}
+		values[":busy"] = &types.AttributeValueMemberS{Value: "busy"}
+	}
+
+	if len(names) > 0 {
+		putInput.ExpressionAttributeNames = names
+	}
+	if len(values) > 0 {
+		putInput.ExpressionAttributeValues = values
 	}
 
 	_, err := c.ddb.PutItem(ctx, putInput)

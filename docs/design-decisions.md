@@ -127,4 +127,25 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Head-of-Line Blocking Prevention:** By default, if a Lambda consumer of a DynamoDB Stream throws an unhandled error, AWS Lambda retries the entire batch until retention expires or the maximum retry limit is hit, stalling all subsequent records on that shard.
 - **Selective Retries:** With `ReportBatchItemFailures`, only the specific records that encountered an error (e.g. transient SQS delivery error) are marked for redelivery by AWS Lambda. Successfully forwarded or intentionally skipped records are committed and not reprocessed, eliminating redundant work and preventing head-of-line blocking.
 
+## ADR: Claim-Then-Confirm Assignment, and What Happens When Confirm Fails
+
+**Decision:** Driver assignment operates via a two-phase "claim-then-confirm" pattern. Matching Service first executes an optimistic conditional write to DynamoDB (`#status = :available` -> `"busy"`) to claim exclusive ownership of a candidate driver. Only after the claim succeeds does it issue a synchronous HTTP confirmation call (`POST /internal/rides/{id}/assign-driver`) to Trip Service. If the Trip Service confirmation call fails, Matching Service immediately attempts a compensating conditional write reverting the driver's status back to `"available"` (conditioned on `#status = :busy`).
+
+**Why:**
+
+- **Preventing Double Assignment (Optimistic Concurrency):** Multiple concurrent matching daemons or parallel evaluation loops could select the same geographically optimal driver for different riders. Requiring an atomic conditional claim in DynamoDB guarantees that only one matcher can transition a driver to `busy`. All competing matchers observe a conditional check failure (`ConditionalCheckFailedException` -> `(false, nil)`) and immediately fall back to their next nearest candidate.
+- **Trip Service as Authority on Ride State:** Trip Service owns the ride lifecycle state machine. Matching Service cannot directly mutate ride state to `MATCHED` in DynamoDB because Trip Service enforces preconditions (e.g. verifying the ride has not been cancelled by the rider in the interim). Thus, a synchronous callback to Trip Service is necessary to finalize the assignment.
+
+**Compensating Transaction & Failure Modes (What Happens When Confirm Fails):**
+
+- **The Core Correctness Dilemma:** Between claiming the driver in DynamoDB and confirming the ride assignment in Trip Service, a distributed state boundary exists across two services. If the HTTP call to Trip Service fails (e.g. network timeout, 500 internal error, or 409 Conflict if the rider cancelled), the driver is left locked in `busy` status without an active trip.
+- **Compensating Revert:** When Trip Service returns an error or fails to respond, Matching Service immediately executes a compensating write:
+  ```
+  ConditionalPutItem(Status = "available", condition = "#status = :busy")
+  ```
+  Conditioning the revert on `#status = :busy` ensures we only revert if the status has not been modified by another process. If the revert succeeds, the driver is safely returned to the available pool for subsequent dispatch cycles.
+- **Known Limitation & Trade-off (Failed Revert):**
+  If the compensation revert itself fails (e.g. network partition, DynamoDB throttling, or crash), the driver remains stuck in `busy` status. This is an accepted distributed systems trade-off for this architecture. Instead of introducing heavy distributed transaction coordinators (e.g. two-phase commit or a centralized Saga coordinator), this condition is logged at `ERROR` level with driver and ride identifiers. It is treated as a known, rare inconsistency to be resolved by the asynchronous TTL sweeper and state reconciliation daemon (Module 27).
+
+
 
