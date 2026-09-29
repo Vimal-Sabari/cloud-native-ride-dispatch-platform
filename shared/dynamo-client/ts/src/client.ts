@@ -1,5 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -17,6 +18,23 @@ export interface QueryInput {
 export interface UpdateRideValues {
   state?: string;
   driverId?: string;
+}
+
+/**
+ * Common data-access interface for DynamoDB operations used across microservices.
+ */
+export interface DynamoAccessor {
+  getItem(pk: string, sk: string): Promise<Record<string, unknown> | null>;
+  putItem(item: Record<string, unknown>): Promise<void>;
+  deleteItem(pk: string, sk: string): Promise<void>;
+  query?(input: QueryInput): Promise<Record<string, unknown>[]>;
+  conditionalPutItem?(item: Record<string, unknown>, conditionExpression: string): Promise<boolean>;
+  updateRide?(
+    rideId: string,
+    values: UpdateRideValues,
+    condition?: string,
+    extraExpressionValues?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
 }
 
 export function isConditionalCheckFailed(error: unknown): boolean {
@@ -38,7 +56,11 @@ function resolveEndpoint(endpoint?: string): string | undefined {
     return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
   }
   if (endpoint && endpoint.trim() !== '') {
-    if (process.env.AWS_LAMBDA_FUNCTION_NAME && endpoint.includes('localhost') && process.env.LOCALSTACK_HOSTNAME) {
+    if (
+      process.env.AWS_LAMBDA_FUNCTION_NAME &&
+      endpoint.includes('localhost') &&
+      process.env.LOCALSTACK_HOSTNAME
+    ) {
       return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
     }
     return endpoint;
@@ -96,6 +118,18 @@ export class DynamoClient {
       new PutCommand({
         TableName: this.tableName,
         Item: item,
+      }),
+    );
+  }
+
+  async deleteItem(pk: string, sk: string): Promise<void> {
+    await this.docClient.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: {
+          PK: pk,
+          SK: sk,
+        },
       }),
     );
   }
@@ -166,7 +200,10 @@ export class DynamoClient {
       if (condition.includes(':matched') && expressionValues[':matched'] === undefined) {
         expressionValues[':matched'] = 'MATCHED';
       }
-      if (condition.includes(':driver_en_route') && expressionValues[':driver_en_route'] === undefined) {
+      if (
+        condition.includes(':driver_en_route') &&
+        expressionValues[':driver_en_route'] === undefined
+      ) {
         expressionValues[':driver_en_route'] = 'DRIVER_EN_ROUTE';
       }
       if (condition.includes('#riderId')) {
@@ -264,7 +301,9 @@ export async function updateRide(
     new DynamoClient(
       process.env.RIDES_TABLE || process.env.DYNAMO_TABLE_NAME || 'ride-dispatch-platform-local',
       process.env.AWS_ENDPOINT_URL ||
-        (process.env.LOCALSTACK_HOSTNAME ? `http://${process.env.LOCALSTACK_HOSTNAME}:4566` : undefined) ||
+        (process.env.LOCALSTACK_HOSTNAME
+          ? `http://${process.env.LOCALSTACK_HOSTNAME}:4566`
+          : undefined) ||
         process.env.DYNAMO_ENDPOINT,
     );
   return targetClient.updateRide(rideId, values, condition);

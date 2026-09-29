@@ -1,18 +1,19 @@
-import jwt, { JwtPayload } from "jsonwebtoken";
+/**
+ * Architectural note on JWT logic split:
+ *
+ * Token verification (`verifyToken`) and associated error/claim types have been refactored
+ * into the shared package `@ride-dispatch/auth`, as multiple consuming microservices
+ * (the API Gateway Lambda Authorizer in auth-stub, and the Notification Service WebSocket
+ * $connect handler in Module 20) require token validation.
+ *
+ * Token issuance (`signToken`) remains here in `services/auth-stub`, because this service
+ * acts as the sole token-issuing authority in the platform architecture.
+ */
 
-export type UserRole = "driver" | "rider";
+import jwt from 'jsonwebtoken';
+import { UserRole, DecodedToken, AuthError, verifyToken } from '@ride-dispatch/auth';
 
-export interface DecodedToken {
-  sub: string;
-  role: string;
-}
-
-export class AuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthError";
-  }
-}
+export { UserRole, DecodedToken, AuthError, verifyToken };
 
 /**
  * Retrieves the JWT signing secret from the environment.
@@ -20,8 +21,8 @@ export class AuthError extends Error {
  */
 function getSecret(): string {
   const secret = process.env.JWT_SECRET;
-  if (!secret || secret.trim() === "") {
-    throw new Error("JWT_SECRET environment variable is missing");
+  if (!secret || secret.trim() === '') {
+    throw new Error('JWT_SECRET environment variable is missing');
   }
   return secret;
 }
@@ -33,40 +34,7 @@ function getSecret(): string {
 export function signToken(subjectId: string, role: UserRole): string {
   const secret = getSecret();
   return jwt.sign({ sub: subjectId, role }, secret, {
-    algorithm: "HS256",
-    expiresIn: "12h",
+    algorithm: 'HS256',
+    expiresIn: '12h',
   });
-}
-
-/**
- * Verifies a JWT and extracts claims.
- * Throws an AuthError for expired, malformed, or invalid signatures.
- */
-export function verifyToken(token: string): DecodedToken {
-  const secret = getSecret();
-  try {
-    const decoded = jwt.verify(token, secret, {
-      algorithms: ["HS256"],
-    }) as JwtPayload;
-
-    if (!decoded.sub || typeof decoded.sub !== "string") {
-      throw new AuthError("Token payload missing valid sub claim");
-    }
-    if (!decoded.role || typeof decoded.role !== "string") {
-      throw new AuthError("Token payload missing valid role claim");
-    }
-
-    return {
-      sub: decoded.sub,
-      role: decoded.role,
-    };
-  } catch (err: unknown) {
-    if (err instanceof AuthError) {
-      throw err;
-    }
-    if (err instanceof Error) {
-      throw new AuthError(`Token verification failed: ${err.message}`);
-    }
-    throw new AuthError("Token verification failed with unknown error");
-  }
 }

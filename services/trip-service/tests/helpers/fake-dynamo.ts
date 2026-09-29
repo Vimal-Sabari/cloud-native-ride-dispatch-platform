@@ -31,6 +31,11 @@ export class FakeDynamoAccessor implements DynamoAccessor {
     this.storage.set(key, JSON.parse(JSON.stringify(item)));
   }
 
+  async deleteItem(pk: string, sk: string): Promise<void> {
+    const key = this.makeKey(pk, sk);
+    this.storage.delete(key);
+  }
+
   async query(input: QueryInput): Promise<Record<string, unknown>[]> {
     const results: Record<string, unknown>[] = [];
 

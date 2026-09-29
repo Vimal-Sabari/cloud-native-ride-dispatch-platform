@@ -312,3 +312,64 @@ module "api_gateway" {
   trip_assign_driver_lambda_function_name    = module.trip_assign_driver_lambda.function_name
 }
 
+# ------------------------------------------------------------------------------
+# Notification Service Lambdas & WebSocket API (TypeScript / Node.js 20.x runtime)
+# ------------------------------------------------------------------------------
+
+# Notification Service - Connect Lambda
+module "notification_connect_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/notification-service/connect.zip"
+  function_name          = "${var.project_name}-${var.environment}-notification-connect"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
+    JWT_SECRET        = "dev-jwt-secret-for-ride-dispatch-local-testing"
+  }
+}
+
+# Notification Service - Disconnect Lambda
+module "notification_disconnect_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/notification-service/disconnect.zip"
+  function_name          = "${var.project_name}-${var.environment}-notification-disconnect"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 10
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME = module.dynamodb.table_name
+    RIDES_TABLE       = module.dynamodb.table_name
+    TABLE_NAME        = module.dynamodb.table_name
+    AWS_REGION        = var.aws_region
+    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
+  }
+}
+
+# Notification Service - WebSocket API Gateway
+module "websocket_api" {
+  source                          = "./modules/websocket-api"
+  project_name                    = var.project_name
+  environment                     = var.environment
+  connect_lambda_invoke_arn       = module.notification_connect_lambda.invoke_arn
+  connect_lambda_function_name    = module.notification_connect_lambda.function_name
+  disconnect_lambda_invoke_arn    = module.notification_disconnect_lambda.invoke_arn
+  disconnect_lambda_function_name = module.notification_disconnect_lambda.function_name
+}
+
+

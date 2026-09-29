@@ -14,6 +14,7 @@ export interface QueryInput {
 export interface DynamoAccessor {
   getItem(pk: string, sk: string): Promise<Record<string, unknown> | null>;
   putItem(item: Record<string, unknown>): Promise<void>;
+  deleteItem(pk: string, sk: string): Promise<void>;
   query(input: QueryInput): Promise<Record<string, unknown>[]>;
   conditionalPutItem(item: Record<string, unknown>, conditionExpression: string): Promise<boolean>;
   updateRide(
@@ -23,4 +24,3 @@ export interface DynamoAccessor {
     extraExpressionValues?: Record<string, unknown>,
   ): Promise<Record<string, unknown>>;
 }
-

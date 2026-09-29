@@ -76,19 +76,21 @@ fi
 if [ ! -f "$ORIGINAL_DIR/shared/dynamo-client/ts/dist/index.js" ] && [ -d "$ORIGINAL_DIR/shared/dynamo-client/ts" ]; then
   npm run build --workspace=@ride-dispatch/dynamo-client --prefix="$ORIGINAL_DIR" >/dev/null 2>&1 || true
 fi
+if [ ! -f "$ORIGINAL_DIR/shared/auth/ts/dist/index.js" ] && [ -d "$ORIGINAL_DIR/shared/auth/ts" ]; then
+  npm run build --workspace=@ride-dispatch/auth --prefix="$ORIGINAL_DIR" >/dev/null 2>&1 || true
+fi
 
 echo "1. Bundling with esbuild (Node 20, platform node)..."
-if [ -f "$ORIGINAL_DIR/node_modules/.bin/esbuild" ]; then
-
+if npx --yes esbuild "$ENTRY_FILE" \
+  --bundle \
+  --platform=node \
+  --target=node20 \
+  --minify \
+  --sourcemap=inline \
+  --outfile="$OUT_JS"; then
+  :
+elif [ -f "$ORIGINAL_DIR/node_modules/.bin/esbuild" ]; then
   "$ORIGINAL_DIR/node_modules/.bin/esbuild" "$ENTRY_FILE" \
-    --bundle \
-    --platform=node \
-    --target=node20 \
-    --minify \
-    --sourcemap=inline \
-    --outfile="$OUT_JS"
-else
-  npx --yes esbuild "$ENTRY_FILE" \
     --bundle \
     --platform=node \
     --target=node20 \

@@ -9,6 +9,7 @@
     "services/auth-stub",
     "shared/models/ts",
     "shared/dynamo-client/ts",
+    "shared/auth/ts",
     "simulators/driver-simulator",
     "simulators/rider-simulator"
   ],
@@ -16,20 +17,21 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run test --workspaces --if-present",
-    "build": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspaces --if-present"
-
+    "test": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspace=@ride-dispatch/auth && npm run test --workspaces --if-present",
+    "build": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspace=@ride-dispatch/auth && npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
     "@types/node": "^26.6.1",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.25.0",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^10.0.1",
-    "esbuild": "^0.25.0",
     "globals": "^15.14.0",
     "prettier": "^3.5.0",
     "tsx": "^4.23.13",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.24.0"
+    "typescript-eslint": "^8.24.0",
+    "ws": "^8.22.0"
   }
 }

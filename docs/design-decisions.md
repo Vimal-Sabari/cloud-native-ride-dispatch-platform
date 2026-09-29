@@ -157,6 +157,12 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Fidelity of Application Logic:** Matching Service's core behavior depends on SQS polling, DynamoDB reads/writes, HTTP calls to Trip Service API Gateway, and in-memory geo-indexing. Running the compiled Go binary directly on the test host exercises the exact same SDK calls, network protocols, concurrency semantics, and configuration contract as a production systemd daemon, without artificial emulation overhead or slow VM bootstrap times.
 - **Clear Separation of Concerns:** EC2 infrastructure code in `infra/modules/ec2-matching/` (IAM roles, egress-only security group, and `t2.micro` instance) is validated via `terraform validate` and `terraform fmt` and conditionally enabled for real AWS deployments (`count = var.environment == "local" ? 0 : 1`). Genuine EC2 provisioning and systemd service bootstrap are validated against real AWS in Module 29.
 
+## ADR: Refactoring JWT Verification into a Shared Package
 
+**Decision:** Extract the `verifyToken` function, along with its supporting types (`UserRole`, `DecodedToken`) and `AuthError` class, from `services/auth-stub/src/jwt-utils.ts` into a new shared npm workspace package `shared/auth/ts/`. `services/auth-stub` retains `signToken` and imports/re-exports `verifyToken` from `@ride-dispatch/auth`.
 
+**Why:**
 
+- **Just-in-Time Shared Code Extraction:** Prior to Module 20, `services/auth-stub` was the sole consumer of JWT logic in TypeScript (issuing tokens and validating them in its custom API Gateway authorizer). Rather than speculatively abstracting auth verification into a shared library early, extraction was deferred until a genuine second consumer emerged.
+- **Notification Service as the Second Consumer:** In Module 20, Notification Service introduces a WebSocket `$connect` handler that must authenticate incoming client connections by verifying their bearer JWT before storing connection mappings. Notification Service is the first real second consumer of token verification in TypeScript.
+- **Separation of Issuance vs. Verification:** `signToken` remains inside `services/auth-stub` because issuing authentication tokens is a privileged responsibility exclusive to the auth service. In contrast, verifying incoming tokens is a cross-cutting concern needed by any service accepting and validating user/driver requests directly.

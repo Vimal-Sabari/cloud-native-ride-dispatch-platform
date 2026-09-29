@@ -17,6 +17,7 @@
     ]
   },
   "dependencies": {
+    "@ride-dispatch/auth": "*",
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {

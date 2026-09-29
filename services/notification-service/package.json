@@ -5,8 +5,33 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "node -e \"process.exit(0)\"",
-    "test": "node -e \"process.exit(0)\"",
+    "build": "tsc",
+    "test": "jest --coverage",
     "lint": "eslint ."
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/*.test.ts"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/index.ts",
+      "!src/handlers/*-entry.ts"
+    ]
+  },
+  "dependencies": {
+    "@ride-dispatch/auth": "*",
+    "@ride-dispatch/dynamo-client": "*"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.147",
+    "@types/jest": "^29.5.14",
+    "@types/jsonwebtoken": "^9.0.8",
+    "@types/node": "^26.6.1",
+    "jest": "^29.7.0",
+    "jsonwebtoken": "^9.0.2",
+    "ts-jest": "^29.2.5"
   }
 }
