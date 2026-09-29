@@ -8,12 +8,24 @@ services:
       - DEFAULT_REGION=us-east-1
       - PERSISTENCE=1
       - MAIN_DOCKER_NETWORK=ride-dispatch
+      - LAMBDA_DOCKER_NETWORK=ride-dispatch
+      - LOCALSTACK_CONTAINER_NAME=ride-dispatch-localstack
+      - MAIN_CONTAINER_NAME=ride-dispatch-localstack
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - SERVICES=dynamodb,lambda,apigateway,s3,sqs,sns
+      - DEBUG=1
     hostname: localstack
     networks:
       - ride-dispatch
     volumes:
       - localstack-data:/var/lib/localstack
       - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
     healthcheck:
       test: ["CMD", "awslocal", "s3", "ls"]
       interval: 2s

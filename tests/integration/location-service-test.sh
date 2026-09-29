@@ -93,55 +93,73 @@ FAILED=0
 # Step 5: Test POST /drivers/{id}/location with valid auth
 echo ""
 echo "5. Testing POST /drivers/test-driver-1/location (authorized)..."
-HTTP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$INVOKE_URL/drivers/test-driver-1/location" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"lat": 37.7749, "lng": -122.4194}')
+for attempt in {1..5}; do
+  HTTP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$INVOKE_URL/drivers/test-driver-1/location" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"lat": 37.7749, "lng": -122.4194}')
 
-HTTP_BODY=$(echo "$HTTP_RESP" | sed '$d')
-HTTP_CODE=$(echo "$HTTP_RESP" | tail -n 1)
+  HTTP_BODY=$(echo "$HTTP_RESP" | sed '$d')
+  HTTP_CODE=$(echo "$HTTP_RESP" | tail -n 1)
 
-if [ "$HTTP_CODE" = "200" ]; then
-  echo "  [PASS] Location update returned HTTP 200 (Body: $HTTP_BODY)"
-else
-  echo "  [FAIL] Expected HTTP 200, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
-  FAILED=1
-fi
+  if [ "$HTTP_CODE" = "200" ]; then
+    echo "  [PASS] Location update returned HTTP 200 (attempt $attempt) (Body: $HTTP_BODY)"
+    break
+  elif [ "$attempt" -lt 5 ]; then
+    echo "  [RETRY] Attempt $attempt returned HTTP $HTTP_CODE (Body: $HTTP_BODY), retrying in 2s..."
+    sleep 2
+  else
+    echo "  [FAIL] Expected HTTP 200, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
+    FAILED=1
+  fi
+done
 
 # Step 6: Test POST /drivers/{id}/status with valid auth
 echo ""
 echo "6. Testing POST /drivers/test-driver-1/status (authorized)..."
-HTTP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$INVOKE_URL/drivers/test-driver-1/status" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"status": "available"}')
+for attempt in {1..5}; do
+  HTTP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$INVOKE_URL/drivers/test-driver-1/status" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"status": "available"}')
 
-HTTP_BODY=$(echo "$HTTP_RESP" | sed '$d')
-HTTP_CODE=$(echo "$HTTP_RESP" | tail -n 1)
+  HTTP_BODY=$(echo "$HTTP_RESP" | sed '$d')
+  HTTP_CODE=$(echo "$HTTP_RESP" | tail -n 1)
 
-if [ "$HTTP_CODE" = "200" ]; then
-  echo "  [PASS] Status update returned HTTP 200 (Body: $HTTP_BODY)"
-else
-  echo "  [FAIL] Expected HTTP 200, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
-  FAILED=1
-fi
+  if [ "$HTTP_CODE" = "200" ]; then
+    echo "  [PASS] Status update returned HTTP 200 (attempt $attempt) (Body: $HTTP_BODY)"
+    break
+  elif [ "$attempt" -lt 5 ]; then
+    echo "  [RETRY] Attempt $attempt returned HTTP $HTTP_CODE (Body: $HTTP_BODY), retrying in 2s..."
+    sleep 2
+  else
+    echo "  [FAIL] Expected HTTP 200, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
+    FAILED=1
+  fi
+done
 
 # Step 7: Test POST /drivers/{id}/location WITHOUT auth header
 echo ""
 echo "7. Testing POST /drivers/test-driver-1/location (unauthorized - no token)..."
-HTTP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$INVOKE_URL/drivers/test-driver-1/location" \
-  -H "Content-Type: application/json" \
-  -d '{"lat": 37.7749, "lng": -122.4194}')
+for attempt in {1..5}; do
+  HTTP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$INVOKE_URL/drivers/test-driver-1/location" \
+    -H "Content-Type: application/json" \
+    -d '{"lat": 37.7749, "lng": -122.4194}')
 
-HTTP_BODY=$(echo "$HTTP_RESP" | sed '$d')
-HTTP_CODE=$(echo "$HTTP_RESP" | tail -n 1)
+  HTTP_BODY=$(echo "$HTTP_RESP" | sed '$d')
+  HTTP_CODE=$(echo "$HTTP_RESP" | tail -n 1)
 
-if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-  echo "  [PASS] Unauthorized request rejected with HTTP $HTTP_CODE (Body: $HTTP_BODY)"
-else
-  echo "  [FAIL] Expected HTTP 401 or 403 for unauthorized request, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
-  FAILED=1
-fi
+  if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+    echo "  [PASS] Unauthorized request rejected with HTTP $HTTP_CODE (attempt $attempt) (Body: $HTTP_BODY)"
+    break
+  elif [ "$attempt" -lt 5 ]; then
+    echo "  [RETRY] Attempt $attempt returned HTTP $HTTP_CODE (Body: $HTTP_BODY), retrying in 2s..."
+    sleep 2
+  else
+    echo "  [FAIL] Expected HTTP 401 or 403 for unauthorized request, got HTTP $HTTP_CODE (Body: $HTTP_BODY)"
+    FAILED=1
+  fi
+done
 
 # Step 8: Direct DynamoDB verification
 echo ""

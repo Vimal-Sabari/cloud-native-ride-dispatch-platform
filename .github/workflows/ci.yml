@@ -167,7 +167,7 @@ jobs:
       - name: Wait for LocalStack
         run: |
           bash scripts/wait-for-localstack.sh
-          sleep 10
+          sleep 15
 
       - name: Run LocalStack Smoke Test
         run: bash scripts/smoke-test-localstack.sh

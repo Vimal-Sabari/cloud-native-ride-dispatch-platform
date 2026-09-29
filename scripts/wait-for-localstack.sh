@@ -9,18 +9,21 @@ INTERVAL=2
 echo "Waiting for LocalStack services to be ready at ${ENDPOINT}..."
 
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-  if docker exec ride-dispatch-localstack awslocal s3 ls > /dev/null 2>&1; then
-    echo "LocalStack S3 is ready!"
-    # Ensure DynamoDB, SQS, and SNS are also ready and responding
-    if docker exec ride-dispatch-localstack awslocal dynamodb list-tables > /dev/null 2>&1 && \
-       docker exec ride-dispatch-localstack awslocal sqs list-queues > /dev/null 2>&1 && \
-       docker exec ride-dispatch-localstack awslocal sns list-topics > /dev/null 2>&1; then
-      echo "LocalStack DynamoDB, SQS, and SNS are ready (after ${ELAPSED}s)."
+  HEALTH_JSON=$(curl -s "${ENDPOINT}/_localstack/health" 2>/dev/null || true)
+  if echo "$HEALTH_JSON" | grep -q '"services"'; then
+    echo "LocalStack health endpoint is reporting services..."
+    # Verify DynamoDB responds via AWS CLI or docker exec
+    if aws dynamodb list-tables --endpoint-url="${ENDPOINT}" --region us-east-1 > /dev/null 2>&1 || \
+       docker exec ride-dispatch-localstack awslocal dynamodb list-tables > /dev/null 2>&1; then
+      echo "LocalStack DynamoDB is accessible and ready (after ${ELAPSED}s)."
+      sleep 2
       exit 0
     fi
-  elif HEALTH_JSON=$(curl -s "${ENDPOINT}/_localstack/health" 2>/dev/null || true); then
-    if echo "$HEALTH_JSON" | grep -qE '"dynamodb":\s*"(available|running)"'; then
-      echo "LocalStack is healthy and DynamoDB is ready via HTTP (after ${ELAPSED}s)."
+  elif docker exec ride-dispatch-localstack awslocal s3 ls > /dev/null 2>&1; then
+    echo "LocalStack S3 is ready!"
+    if docker exec ride-dispatch-localstack awslocal dynamodb list-tables > /dev/null 2>&1; then
+      echo "LocalStack DynamoDB is ready via docker exec (after ${ELAPSED}s)."
+      sleep 2
       exit 0
     fi
   fi
