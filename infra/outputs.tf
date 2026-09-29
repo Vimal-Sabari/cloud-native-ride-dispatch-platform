@@ -100,5 +100,5 @@ output "matching_service_public_ip" {
 
 output "websocket_api_invoke_url" {
   description = "The WebSocket API Gateway invoke URL"
-  value       = module.websocket_api.invoke_url
+  value       = try(module.websocket_api[0].invoke_url, "")
 }

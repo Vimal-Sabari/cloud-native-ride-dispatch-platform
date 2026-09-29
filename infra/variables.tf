@@ -25,3 +25,10 @@ variable "internal_api_key" {
   type        = string
 }
 
+variable "use_localstack" {
+  description = "Whether to use LocalStack for testing (disables services not supported in Community tier like apigatewayv2)"
+  type        = bool
+  default     = false
+}
+
+

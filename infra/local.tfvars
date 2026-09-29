@@ -10,4 +10,6 @@
 
 environment      = "local"
 internal_api_key = "dev-internal-api-key-for-matching-service"
+use_localstack   = true
+
 

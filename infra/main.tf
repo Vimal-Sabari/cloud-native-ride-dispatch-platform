@@ -363,7 +363,12 @@ module "notification_disconnect_lambda" {
 }
 
 # Notification Service - WebSocket API Gateway
+# Note on LocalStack Community tier:
+# API Gateway v2 (WebSocket APIs: aws_apigatewayv2_api) is unsupported in LocalStack
+# Community edition (returns 501 Not Implemented). Per project design decisions,
+# when use_localstack is true or environment == "local", WebSocket API Gateway resources are skipped.
 module "websocket_api" {
+  count                           = var.use_localstack || var.environment == "local" ? 0 : 1
   source                          = "./modules/websocket-api"
   project_name                    = var.project_name
   environment                     = var.environment
