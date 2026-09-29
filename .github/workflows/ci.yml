@@ -194,6 +194,11 @@ jobs:
           # in CI so Terraform uses a local state file for LocalStack integration testing,
           # as real AWS S3 remote backend credentials are not available or needed here.
           mv infra/backend.tf infra/backend.tf.bak
+          export AWS_ACCESS_KEY_ID=test
+          export AWS_SECRET_ACCESS_KEY=test
+          export AWS_DEFAULT_REGION=us-east-1
+          unset AWS_SESSION_TOKEN
+          unset AWS_SECURITY_TOKEN
           cd infra
           terraform init
           export TF_LOG=DEBUG
