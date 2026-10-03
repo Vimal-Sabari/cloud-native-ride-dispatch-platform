@@ -9,13 +9,22 @@
  */
 
 import { RideState } from '@ride-dispatch/models';
-import { DynamoAccessor } from '../dynamo-accessor';
+import { DynamoAccessor, SnsPublisher } from '../dynamo-accessor';
 import { canTransition } from '../state-machine';
+
+export type CancelRideDeps = DynamoAccessor & {
+  sns?: SnsPublisher;
+  matchEventsTopicArn?: string;
+};
 
 export async function cancelRide(
   rideId: string,
-  deps: DynamoAccessor,
+  deps: CancelRideDeps,
+  snsParam?: SnsPublisher,
+  matchEventsTopicArnParam?: string,
 ): Promise<{ statusCode: number; body: unknown }> {
+  const sns = snsParam || deps?.sns;
+  const matchEventsTopicArn = matchEventsTopicArnParam || deps?.matchEventsTopicArn || process.env.MATCH_EVENTS_TOPIC_ARN;
   if (!rideId || typeof rideId !== 'string' || rideId.trim() === '') {
     return {
       statusCode: 400,
@@ -59,6 +68,30 @@ export async function cancelRide(
       { state: RideState.CANCELLED },
       condition,
     );
+
+    // Publish ride-cancelled event to SNS (best-effort, non-blocking)
+    if (sns && matchEventsTopicArn) {
+      try {
+        const payload: Record<string, unknown> = {
+          eventType: 'ride-cancelled',
+          rideId: rideId.trim(),
+          riderId: currentRide.riderId,
+          timestamp: new Date().toISOString(),
+        };
+        if (
+          (currentState === RideState.MATCHED || currentState === RideState.DRIVER_EN_ROUTE) &&
+          currentRide.driverId
+        ) {
+          payload.driverId = currentRide.driverId;
+        }
+        await sns.publish(matchEventsTopicArn, payload);
+      } catch (snsErr) {
+        console.warn('Failed to publish ride-cancelled event to SNS (non-blocking)', {
+          rideId: rideId.trim(),
+          error: snsErr instanceof Error ? snsErr.message : String(snsErr),
+        });
+      }
+    }
 
     return {
       statusCode: 200,

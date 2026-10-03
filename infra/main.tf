@@ -172,12 +172,14 @@ module "trip_cancel_ride_lambda" {
   memory_size            = 128
 
   environment_variables = {
-    DYNAMO_TABLE_NAME = module.dynamodb.table_name
-    RIDES_TABLE       = module.dynamodb.table_name
-    TABLE_NAME        = module.dynamodb.table_name
-    AWS_REGION        = var.aws_region
-    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_TABLE_NAME      = module.dynamodb.table_name
+    RIDES_TABLE            = module.dynamodb.table_name
+    TABLE_NAME             = module.dynamodb.table_name
+    AWS_REGION             = var.aws_region
+    AWS_ENDPOINT_URL       = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT        = var.environment == "local" ? "http://localstack:4566" : ""
+    MATCH_EVENTS_TOPIC_ARN = module.sqs_sns.match_events_topic_arn
+    SNS_ENDPOINT           = var.environment == "local" ? "http://localstack:4566" : ""
   }
 }
 
@@ -216,14 +218,40 @@ module "trip_assign_driver_lambda" {
   memory_size            = 128
 
   environment_variables = {
-    DYNAMO_TABLE_NAME = module.dynamodb.table_name
-    RIDES_TABLE       = module.dynamodb.table_name
-    TABLE_NAME        = module.dynamodb.table_name
-    AWS_REGION        = var.aws_region
-    AWS_ENDPOINT_URL  = var.environment == "local" ? "http://localstack:4566" : ""
-    DYNAMO_ENDPOINT   = var.environment == "local" ? "http://localstack:4566" : ""
-    INTERNAL_API_KEY  = var.internal_api_key
+    DYNAMO_TABLE_NAME      = module.dynamodb.table_name
+    RIDES_TABLE            = module.dynamodb.table_name
+    TABLE_NAME             = module.dynamodb.table_name
+    AWS_REGION             = var.aws_region
+    AWS_ENDPOINT_URL       = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT        = var.environment == "local" ? "http://localstack:4566" : ""
+    INTERNAL_API_KEY       = var.internal_api_key
+    MATCH_EVENTS_TOPIC_ARN = module.sqs_sns.match_events_topic_arn
+    SNS_ENDPOINT           = var.environment == "local" ? "http://localstack:4566" : ""
   }
+}
+
+# Grant Trip Service Lambdas permissions to publish to match-events SNS topic
+resource "aws_iam_role_policy" "trip_sns_publish_policy" {
+  for_each = {
+    cancel_ride   = module.trip_cancel_ride_lambda.role_name
+    assign_driver = module.trip_assign_driver_lambda.role_name
+  }
+
+  name = "${var.project_name}-${var.environment}-trip-${each.key}-sns-publish"
+  role = each.value
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sns:Publish"
+        ]
+        Resource = module.sqs_sns.match_events_topic_arn
+      }
+    ]
+  })
 }
 
 
@@ -362,6 +390,30 @@ module "notification_disconnect_lambda" {
   }
 }
 
+# Notification Service - Fanout Lambda
+module "notification_fanout_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.fanoutHandler"
+  artifact_path          = "${path.module}/../services/notification-service/fanout.zip"
+  function_name          = "${var.project_name}-${var.environment}-notification-fanout"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 15
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME      = module.dynamodb.table_name
+    RIDES_TABLE            = module.dynamodb.table_name
+    TABLE_NAME             = module.dynamodb.table_name
+    AWS_REGION             = var.aws_region
+    AWS_ENDPOINT_URL       = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT        = var.environment == "local" ? "http://localstack:4566" : ""
+    SNS_ENDPOINT           = var.environment == "local" ? "http://localstack:4566" : ""
+    WEBSOCKET_API_ENDPOINT = var.environment == "local" ? "http://localstack:4566" : ""
+  }
+}
+
 # Notification Service - WebSocket API Gateway
 # Note on LocalStack Community tier:
 # API Gateway v2 (WebSocket APIs: aws_apigatewayv2_api) is unsupported in LocalStack
@@ -376,6 +428,29 @@ module "websocket_api" {
   connect_lambda_function_name    = module.notification_connect_lambda.function_name
   disconnect_lambda_invoke_arn    = module.notification_disconnect_lambda.invoke_arn
   disconnect_lambda_function_name = module.notification_disconnect_lambda.function_name
+  match_events_topic_arn          = module.sqs_sns.match_events_topic_arn
+  fanout_lambda_arn               = module.notification_fanout_lambda.function_arn
+  fanout_lambda_function_name     = module.notification_fanout_lambda.function_name
+  fanout_lambda_role_name         = module.notification_fanout_lambda.role_name
+  dynamodb_table_arn              = module.dynamodb.table_arn
+}
+
+# In LocalStack Community environments where websocket_api module is skipped due to APIGatewayV2 limitation,
+# provision the SNS topic subscription and Lambda invoke permission directly so SNS fan-out works in LocalStack.
+resource "aws_sns_topic_subscription" "localstack_fanout" {
+  count     = var.use_localstack || var.environment == "local" ? 1 : 0
+  topic_arn = module.sqs_sns.match_events_topic_arn
+  protocol  = "lambda"
+  endpoint  = module.notification_fanout_lambda.function_arn
+}
+
+resource "aws_lambda_permission" "localstack_sns_invoke_fanout" {
+  count         = var.use_localstack || var.environment == "local" ? 1 : 0
+  statement_id  = "AllowExecutionFromSNSMatchEventsLocal"
+  action        = "lambda:InvokeFunction"
+  function_name = module.notification_fanout_lambda.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = module.sqs_sns.match_events_topic_arn
 }
 
 

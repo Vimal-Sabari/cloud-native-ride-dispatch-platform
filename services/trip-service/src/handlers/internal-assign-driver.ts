@@ -8,8 +8,10 @@
  */
 
 import { RideState } from '@ride-dispatch/models';
-import { DynamoAccessor } from '../dynamo-accessor';
+import { DynamoAccessor, SnsPublisher } from '../dynamo-accessor';
 import { canTransition } from '../state-machine';
+
+export { SnsPublisher };
 
 function extractApiKey(headers?: Record<string, string | undefined>): string | undefined {
   if (!headers) return undefined;
@@ -21,23 +23,33 @@ function extractApiKey(headers?: Record<string, string | undefined>): string | u
   return undefined;
 }
 
+export type AssignDriverDeps = DynamoAccessor & {
+  sns?: SnsPublisher;
+  matchEventsTopicArn?: string;
+};
+
 export async function assignDriver(
   rideId: string,
   driverId: string,
-  depsOrHeaders: DynamoAccessor | Record<string, string | undefined>,
-  optionalDepsOrHeaders?: DynamoAccessor | Record<string, string | undefined>,
+  depsOrHeaders: AssignDriverDeps | Record<string, string | undefined>,
+  optionalDepsOrHeaders?: AssignDriverDeps | Record<string, string | undefined>,
+  snsParam?: SnsPublisher,
+  matchEventsTopicArnParam?: string,
 ): Promise<{ statusCode: number; body: unknown }> {
   // Disambiguate flexible argument order: (rideId, driverId, deps, headers) or (rideId, driverId, headers, deps)
-  let deps: DynamoAccessor;
+  let deps: AssignDriverDeps;
   let headers: Record<string, string | undefined> | undefined;
 
   if (depsOrHeaders && 'getItem' in depsOrHeaders) {
-    deps = depsOrHeaders as DynamoAccessor;
+    deps = depsOrHeaders as AssignDriverDeps;
     headers = optionalDepsOrHeaders as Record<string, string | undefined> | undefined;
   } else {
     headers = depsOrHeaders as Record<string, string | undefined> | undefined;
-    deps = optionalDepsOrHeaders as DynamoAccessor;
+    deps = optionalDepsOrHeaders as AssignDriverDeps;
   }
+
+  const sns = snsParam || deps?.sns;
+  const matchEventsTopicArn = matchEventsTopicArnParam || deps?.matchEventsTopicArn || process.env.MATCH_EVENTS_TOPIC_ARN;
 
   // 1. Verify internal API key before any state machine or data-access logic
   const apiKey = extractApiKey(headers);
@@ -114,6 +126,24 @@ export async function assignDriver(
     };
 
     await deps.putItem(driverPointerItem);
+
+    // 5. Publish ride-matched event to SNS (best-effort, non-blocking)
+    if (sns && matchEventsTopicArn) {
+      try {
+        await sns.publish(matchEventsTopicArn, {
+          eventType: 'ride-matched',
+          rideId: rideId.trim(),
+          riderId: currentRide.riderId,
+          driverId: driverId.trim(),
+          timestamp: now,
+        });
+      } catch (snsErr) {
+        console.warn('Failed to publish ride-matched event to SNS (non-blocking)', {
+          rideId: rideId.trim(),
+          error: snsErr instanceof Error ? snsErr.message : String(snsErr),
+        });
+      }
+    }
 
     return {
       statusCode: 200,

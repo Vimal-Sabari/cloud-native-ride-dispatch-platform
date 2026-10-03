@@ -125,6 +125,7 @@ jobs:
           npm run build --workspace=@ride-dispatch/models
           npm run build --workspace=@ride-dispatch/dynamo-client
           npm run build --workspace=@ride-dispatch/auth
+          npm run build --workspace=@ride-dispatch/sns-client
 
       - name: Run tests
         run: npm test
@@ -161,6 +162,7 @@ jobs:
           npm run build --workspace=@ride-dispatch/models
           npm run build --workspace=@ride-dispatch/dynamo-client
           npm run build --workspace=@ride-dispatch/auth
+          npm run build --workspace=@ride-dispatch/sns-client
           npm run build --workspace=@ride-dispatch/notification-service
 
       - name: Start LocalStack
@@ -187,6 +189,7 @@ jobs:
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/internal-assign-driver-entry.ts assign-driver
           bash scripts/build-node-lambda.sh services/notification-service src/handlers/connect.ts connect
           bash scripts/build-node-lambda.sh services/notification-service src/handlers/disconnect.ts disconnect
+          bash scripts/build-node-lambda.sh services/notification-service src/handlers/sns-fanout-entry.ts fanout
           bash scripts/build-go-lambda.sh services/event-forwarder event-forwarder
 
       - name: Provision Terraform Infrastructure against LocalStack

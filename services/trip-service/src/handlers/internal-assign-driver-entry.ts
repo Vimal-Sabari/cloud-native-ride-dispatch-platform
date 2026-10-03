@@ -4,6 +4,7 @@
 
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
 import { DynamoClient, isConditionalCheckFailed } from "@ride-dispatch/dynamo-client";
+import { SnsClient } from "@ride-dispatch/sns-client";
 import { assignDriver } from "./internal-assign-driver";
 
 function getTableName(): string {
@@ -27,7 +28,19 @@ function getEndpoint(): string | undefined {
   return process.env.DYNAMO_ENDPOINT || undefined;
 }
 
+function getSnsEndpoint(): string | undefined {
+  if (process.env.AWS_ENDPOINT_URL) {
+    return process.env.AWS_ENDPOINT_URL;
+  }
+  if (process.env.LOCALSTACK_HOSTNAME) {
+    return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
+  }
+  return process.env.SNS_ENDPOINT || undefined;
+}
+
 const dynamoClient = new DynamoClient(getTableName(), getEndpoint());
+const snsClient = new SnsClient(getSnsEndpoint());
+const matchEventsTopicArn = process.env.MATCH_EVENTS_TOPIC_ARN || "";
 
 function jsonResponse(statusCode: number, body: unknown): APIGatewayProxyResult {
   return {
@@ -96,7 +109,14 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       return jsonResponse(400, { error: "Missing driverId in request body" });
     }
 
-    const result = await assignDriver(rideId, driverId, dynamoClient, event.headers || {});
+    const result = await assignDriver(
+      rideId,
+      driverId,
+      dynamoClient,
+      event.headers || {},
+      snsClient,
+      matchEventsTopicArn
+    );
     return jsonResponse(result.statusCode, result.body);
   } catch (error: unknown) {
     if (isConditionalCheckFailed(error)) {

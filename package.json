@@ -10,6 +10,7 @@
     "shared/models/ts",
     "shared/dynamo-client/ts",
     "shared/auth/ts",
+    "shared/sns-client/ts",
     "simulators/driver-simulator",
     "simulators/rider-simulator"
   ],
@@ -17,8 +18,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspace=@ride-dispatch/auth && npm run test --workspaces --if-present",
-    "build": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspace=@ride-dispatch/auth && npm run build --workspaces --if-present"
+    "test": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspace=@ride-dispatch/auth && npm run build --workspace=@ride-dispatch/sns-client && npm run test --workspaces --if-present",
+    "build": "npm run build --workspace=@ride-dispatch/models && npm run build --workspace=@ride-dispatch/dynamo-client && npm run build --workspace=@ride-dispatch/auth && npm run build --workspace=@ride-dispatch/sns-client && npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
@@ -33,5 +34,9 @@
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.0",
     "ws": "^8.22.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.1146.0",
+    "@aws-sdk/client-sns": "^3.1146.0"
   }
 }

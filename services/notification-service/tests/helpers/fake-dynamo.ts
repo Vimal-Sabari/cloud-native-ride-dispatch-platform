@@ -27,6 +27,27 @@ export class FakeDynamoAccessor implements DynamoAccessor {
     this.storage.delete(key);
   }
 
+  async query(input: {
+    indexName?: string;
+    keyConditionExpression: string;
+    expressionAttributeValues: Record<string, unknown>;
+  }): Promise<Record<string, unknown>[]> {
+    const targetPk = input.expressionAttributeValues[':pk'] as string | undefined;
+    const prefix = input.expressionAttributeValues[':skPrefix'] as string | undefined;
+
+    const results: Record<string, unknown>[] = [];
+    for (const item of this.storage.values()) {
+      if (targetPk && item.PK !== targetPk) {
+        continue;
+      }
+      if (prefix && typeof item.SK === 'string' && !item.SK.startsWith(prefix)) {
+        continue;
+      }
+      results.push(JSON.parse(JSON.stringify(item)));
+    }
+    return results;
+  }
+
   // Test helpers
   seed(items: Record<string, unknown>[]): void {
     for (const item of items) {

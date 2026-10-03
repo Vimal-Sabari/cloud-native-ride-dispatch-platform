@@ -2,7 +2,7 @@
 
 /**
  * ==============================================================================
- * Notification Service WebSocket Connection Management Integration Test
+ * Notification Service WebSocket Connection Management & Fan-Out Integration Test
  * ==============================================================================
  *
  * ARCHITECTURAL DESIGN NOTE: WHY NODE.JS INSTEAD OF BASH:
@@ -10,22 +10,19 @@
  * library rather than a bash/curl script. Standard command-line HTTP tools like
  * curl or netcat cannot manage the RFC 6455 WebSocket protocol handshake, persistent
  * frame-level duplex streaming, heartbeat frames, or event-driven connection lifecycle
- * events ('open', 'error', 'close'). Using Node.js with `ws` allows realistic,
- * event-driven verification of client connection establishment, rejection handling,
- * and graceful closure against AWS API Gateway WebSocket stages.
+ * events ('open', 'error', 'close', 'message'). Using Node.js with `ws` allows realistic,
+ * event-driven verification of client connection establishment, real-time message delivery,
+ * and abrupt socket loss cleanup against AWS API Gateway WebSocket stages.
  *
- * Test Flow:
- * 1. Read configuration (WebSocket URL from terraform output or env, DynamoDB endpoint).
- * 2. Generate a valid driver JWT using JWT_SECRET.
- * 3. Case A (Positive): Connect to WebSocket API with valid token:
- *    - Assert connection opens successfully ('open' event fires).
- *    - Query DynamoDB to verify forward record (CONNECTION#<id>, DETAILS) and
- *      reverse record (USER#<subId>, CONNECTION#<id>) exist with correct attributes.
- * 4. Case B (Negative): Attempt to connect without a token:
- *    - Assert connection is refused ('error' or 'close' fires, never 'open').
- * 5. Case C (Cleanup): Close the valid connection:
- *    - Wait for $disconnect Lambda to process.
- *    - Query DynamoDB to confirm both records are deleted.
+ * Test Coverage:
+ * 1. Positive Connection: Valid rider JWT opens WebSocket connection & persists DynamoDB records.
+ * 2. Negative Connection: Missing JWT rejected with 401.
+ * 3. Fan-out Delivery: Triggering driver assignment publishes to SNS topic, which invokes
+ *    Notification Fan-out Lambda to push `ride-matched` event over open WebSocket.
+ * 4. Stale Connection Cleanup: Forcibly closing socket via `.terminate()` (simulating abrupt network loss
+ *    without RFC 6455 close frame) and triggering a fan-out event causes API Gateway GoneException (410),
+ *    which cleans up both forward and reverse DynamoDB records.
+ * 5. Disconnect Cleanup: Normal disconnect deletes both connection records.
  * ==============================================================================
  */
 
@@ -34,12 +31,13 @@ const path = require('path');
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, QueryCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, QueryCommand, GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 
 const ENDPOINT_URL = process.env.AWS_ENDPOINT_URL || 'http://localhost:4566';
 const REGION = process.env.AWS_REGION || 'us-east-1';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-for-ride-dispatch-local-testing';
 const JWT_SECRET = process.env.JWT_SECRET;
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'dev-internal-api-key-for-matching-service';
 
 // Resolve WebSocket URL from environment or terraform output
 function getWebSocketUrl() {
@@ -58,6 +56,26 @@ function getWebSocketUrl() {
     }
   } catch {
     // Fall back to empty if terraform output unavailable
+  }
+  return '';
+}
+
+function getApiGatewayUrl() {
+  if (process.env.API_GATEWAY_URL) {
+    return process.env.API_GATEWAY_URL.replace(/\/$/, '');
+  }
+  const infraDir = path.resolve(__dirname, '../../infra');
+  try {
+    const output = execSync('terraform output -raw api_gateway_invoke_url', {
+      cwd: infraDir,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    if (output && !output.includes('No output') && output.length > 0) {
+      return output.replace(/\/$/, '');
+    }
+  } catch {
+    // Fall back
   }
   return '';
 }
@@ -86,15 +104,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   console.log('========================================================');
-  console.log('Notification Service WebSocket Connections Integration Test');
+  console.log('Notification Service WebSocket Connections & Fan-Out Test');
   console.log('AWS Endpoint:  ', ENDPOINT_URL);
   console.log('Region:        ', REGION);
   console.log('========================================================\n');
 
   const wssUrl = getWebSocketUrl();
+  const apiBaseUrl = getApiGatewayUrl();
   const tableName = getTableName();
-  console.log(`Resolved WebSocket URL: ${wssUrl || '(none - LocalStack Community tier)'}`);
-  console.log(`Resolved Table Name:    ${tableName}\n`);
+  console.log(`Resolved WebSocket URL:   ${wssUrl || '(none - LocalStack Community tier)'}`);
+  console.log(`Resolved API Gateway URL: ${apiBaseUrl || '(none)'}`);
+  console.log(`Resolved Table Name:      ${tableName}\n`);
 
   // Initialize DynamoDB Client
   const rawDdb = new DynamoDBClient({
@@ -107,14 +127,14 @@ async function main() {
   });
   const docClient = DynamoDBDocumentClient.from(rawDdb);
 
-  const testUserId = `driver-ws-test-${Date.now()}`;
-  const validToken = jwt.sign({ sub: testUserId, role: 'driver' }, JWT_SECRET, {
+  const testUserId = `rider-ws-test-${Date.now()}`;
+  const validToken = jwt.sign({ sub: testUserId, role: 'rider' }, JWT_SECRET, {
     algorithm: 'HS256',
     expiresIn: '1h',
   });
 
   // If WebSocket API Gateway is not provisioned (unsupported in LocalStack Community edition),
-  // verify end-to-end handler persistence and cleanup directly against LocalStack DynamoDB.
+  // verify end-to-end handler persistence, fanout push, and stale connection cleanup directly against LocalStack.
   if (!wssUrl) {
     console.log('[INFO] API Gateway v2 (WebSocket) is unsupported in LocalStack Community tier.');
     console.log('[INFO] Verifying Notification Service handlers directly against LocalStack DynamoDB...\n');
@@ -137,6 +157,7 @@ async function main() {
     const { DynamoClient } = require('@ride-dispatch/dynamo-client');
     const { handleConnect } = require('../../services/notification-service/dist/handlers/connect');
     const { handleDisconnect } = require('../../services/notification-service/dist/handlers/disconnect');
+    const { handleFanoutEvent } = require('../../services/notification-service/dist/handlers/sns-fanout');
 
     const dynamoAccessor = new DynamoClient(tableName, ENDPOINT_URL);
     const mockConnId = `conn-direct-${Date.now()}`;
@@ -177,11 +198,104 @@ async function main() {
     }
     console.log('[PASS] Missing token rejected with 401.');
 
-    // Test Case C: Disconnect cleans up records
-    console.log('\n--- Direct Test Case C: Disconnect cleans up records ---');
-    const resC = await handleDisconnect(mockConnId, dynamoAccessor);
-    if (resC.statusCode !== 200) {
-      console.error(`[FAIL] Expected statusCode 200, got ${resC.statusCode}`);
+    // Test Case C: Fan-out event delivery
+    console.log('\n--- Direct Test Case C: Fan-out event delivery to active connection ---');
+    const directRideId = `ride-fanout-direct-${Date.now()}`;
+    const directDriverId = `driver-fanout-direct-${Date.now()}`;
+    const postedMessages = [];
+    const mockConnectionManager = {
+      postToConnection: async (connectionId, payload) => {
+        postedMessages.push({ connectionId, payload });
+        return { stale: false };
+      },
+    };
+
+    const fanoutMessage = {
+      eventType: 'ride-matched',
+      rideId: directRideId,
+      riderId: testUserId,
+      driverId: directDriverId,
+    };
+
+    await handleFanoutEvent(fanoutMessage, {
+      ...dynamoAccessor,
+      connectionManager: mockConnectionManager,
+    });
+
+    if (postedMessages.length !== 1 || postedMessages[0].connectionId !== mockConnId) {
+      console.error('[FAIL] Fan-out did not post to expected active connection!', postedMessages);
+      process.exit(1);
+    }
+    if (postedMessages[0].payload.eventType !== 'ride-matched' || postedMessages[0].payload.rideId !== directRideId) {
+      console.error('[FAIL] Fan-out payload mismatch:', postedMessages[0].payload);
+      process.exit(1);
+    }
+    console.log('[PASS] Fan-out successfully posted ride-matched event to rider connection.');
+
+    // Test Case D: Stale connection cleanup
+    console.log('\n--- Direct Test Case D: Stale connection cleanup during fanout ---');
+    const staleSubjectId = `rider-stale-${Date.now()}`;
+    const staleConnId = `conn-stale-${Date.now()}`;
+    const staleToken = jwt.sign({ sub: staleSubjectId, role: 'rider' }, JWT_SECRET, { expiresIn: '1h' });
+
+    await handleConnect(staleConnId, staleToken, dynamoAccessor);
+
+    // Verify stale records exist before fanout
+    const stalePreCheck = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { PK: `CONNECTION#${staleConnId}`, SK: 'DETAILS' },
+      }),
+    );
+    if (!stalePreCheck.Item) {
+      console.error('[FAIL] Stale test connection was not seeded in DynamoDB');
+      process.exit(1);
+    }
+
+    // Mock connection manager returning { stale: true } simulating GoneException (410)
+    const staleConnectionManager = {
+      postToConnection: async (connectionId) => {
+        return { stale: connectionId === staleConnId };
+      },
+    };
+
+    await handleFanoutEvent(
+      {
+        eventType: 'ride-cancelled',
+        rideId: `ride-cancel-${Date.now()}`,
+        riderId: staleSubjectId,
+      },
+      {
+        ...dynamoAccessor,
+        connectionManager: staleConnectionManager,
+      },
+    );
+
+    // Confirm both records are deleted from DynamoDB
+    const staleForwardPost = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { PK: `CONNECTION#${staleConnId}`, SK: 'DETAILS' },
+      }),
+    );
+    const staleReversePost = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { PK: `USER#${staleSubjectId}`, SK: `CONNECTION#${staleConnId}` },
+      }),
+    );
+
+    if (staleForwardPost.Item || staleReversePost.Item) {
+      console.error('[FAIL] Stale connection records were not deleted from DynamoDB during fanout cleanup!');
+      process.exit(1);
+    }
+    console.log('[PASS] Stale connection records cleanly purged from DynamoDB upon { stale: true }.');
+
+    // Test Case E: Clean up original connection
+    console.log('\n--- Direct Test Case E: Disconnect cleans up records ---');
+    const resE = await handleDisconnect(mockConnId, dynamoAccessor);
+    if (resE.statusCode !== 200) {
+      console.error(`[FAIL] Expected statusCode 200, got ${resE.statusCode}`);
       process.exit(1);
     }
 
@@ -206,7 +320,7 @@ async function main() {
 
     console.log('\n========================================================');
     console.log('NOTIFICATION SERVICE WEBSOCKET INTEGRATION TEST: PASSED');
-    console.log('(Verified handler logic & real persistence against LocalStack)');
+    console.log('(Verified connection lifecycle, fan-out delivery, & stale cleanup)');
     console.log('========================================================');
     process.exit(0);
   }
@@ -289,7 +403,7 @@ async function main() {
         passed = false;
       } else {
         const item = forwardResult.Item;
-        if (item.subjectId === testUserId && item.role === 'driver') {
+        if (item.subjectId === testUserId && item.role === 'rider') {
           console.log('[PASS] Forward lookup record verified with correct subjectId and role.');
         } else {
           console.error(`[FAIL] Forward lookup record attributes mismatch:`, item);
@@ -342,9 +456,205 @@ async function main() {
   }
 
   // ----------------------------------------------------------------------------
-  // Case C: Disconnect & Record Cleanup
+  // Case C: Real-time Fan-out Message Delivery on Match
   // ----------------------------------------------------------------------------
-  console.log('\n--- Test Case C: Disconnect & Record Cleanup ---');
+  console.log('\n--- Test Case C: Real-time Fan-out Push on Driver Assignment ---');
+  if (validWs && validWs.readyState === WebSocket.OPEN && connectionId) {
+    try {
+      const fanoutRideId = `ride-live-fanout-${Date.now()}`;
+      const fanoutDriverId = `driver-live-${Date.now()}`;
+
+      // 1. Seed fresh REQUESTED-state ride in DynamoDB
+      console.log(`Seeding REQUESTED ride ${fanoutRideId} for rider ${testUserId}...`);
+      await docClient.send(
+        new PutCommand({
+          TableName: tableName,
+          Item: {
+            PK: `RIDE#${fanoutRideId}`,
+            SK: 'DETAILS',
+            rideId: fanoutRideId,
+            riderId: testUserId,
+            state: 'REQUESTED',
+            pickup: { lat: 37.77, lng: -122.41 },
+            dropoff: { lat: 37.78, lng: -122.42 },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+      );
+
+      // 2. Setup listener on open WebSocket for pushed message
+      const messagePromise = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Timeout: Did not receive fan-out message on WebSocket within 10000ms'));
+        }, 10000);
+
+        validWs.once('message', (data) => {
+          clearTimeout(timer);
+          try {
+            const parsed = JSON.parse(data.toString());
+            resolve(parsed);
+          } catch (e) {
+            reject(new Error(`Failed to parse WebSocket message: ${e.message}`));
+          }
+        });
+      });
+
+      // 3. Trigger driver assignment via Trip Service REST API or assign-driver handler
+      if (apiBaseUrl) {
+        console.log(`Calling POST ${apiBaseUrl}/internal/rides/${fanoutRideId}/assign-driver...`);
+        const response = await fetch(`${apiBaseUrl}/internal/rides/${fanoutRideId}/assign-driver`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-api-key': INTERNAL_API_KEY,
+          },
+          body: JSON.stringify({ driverId: fanoutDriverId }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`assign-driver API returned HTTP ${response.status}`);
+        }
+      } else {
+        // Direct handler call if REST endpoint not accessible
+        const { assignDriver } = require('../../services/trip-service/dist/handlers/internal-assign-driver');
+        const { SnsClient } = require('@ride-dispatch/sns-client');
+        const { DynamoClient } = require('@ride-dispatch/dynamo-client');
+        const sns = new SnsClient(ENDPOINT_URL);
+        const dynamo = new DynamoClient(tableName, ENDPOINT_URL);
+        const topicArn = process.env.MATCH_EVENTS_TOPIC_ARN || '';
+        await assignDriver(fanoutRideId, fanoutDriverId, dynamo, { 'x-internal-api-key': INTERNAL_API_KEY }, sns, topicArn);
+      }
+
+      console.log('Awaiting fan-out message on WebSocket connection...');
+      const receivedMsg = await messagePromise;
+      console.log('Received WebSocket message:', receivedMsg);
+
+      if (
+        receivedMsg.eventType === 'ride-matched' &&
+        receivedMsg.rideId === fanoutRideId &&
+        receivedMsg.riderId === testUserId &&
+        receivedMsg.driverId === fanoutDriverId
+      ) {
+        console.log('[PASS] WebSocket received valid ride-matched event with expected fields.');
+      } else {
+        console.error('[FAIL] Received message did not match expected structure:', receivedMsg);
+        passed = false;
+      }
+    } catch (err) {
+      console.error('[FAIL] Fan-out message delivery test failed:', err.message);
+      passed = false;
+    }
+  } else {
+    console.log('[SKIP] Skipping fan-out test due to prior connection failure.');
+  }
+
+  // ----------------------------------------------------------------------------
+  // Case D: Stale Connection Cleanup on Fan-Out
+  // ----------------------------------------------------------------------------
+  console.log('\n--- Test Case D: Stale Connection Cleanup on Fan-Out ---');
+  try {
+    const staleSubjectId = `rider-abrupt-loss-${Date.now()}`;
+    const staleToken = jwt.sign({ sub: staleSubjectId, role: 'rider' }, JWT_SECRET, { expiresIn: '1h' });
+
+    console.log(`Opening WebSocket for simulated abrupt loss subject (${staleSubjectId})...`);
+    const staleWs = await new Promise((resolve, reject) => {
+      const ws = new WebSocket(`${wssUrl}?token=${staleToken}`, {
+        rejectUnauthorized: false,
+        handshakeTimeout: 10000,
+      });
+      const timer = setTimeout(() => reject(new Error('Stale WS connection timed out')), 10000);
+      ws.on('open', () => {
+        clearTimeout(timer);
+        resolve(ws);
+      });
+      ws.on('error', (e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
+
+    await sleep(1500);
+
+    // Retrieve the connection ID from DynamoDB
+    const queryStale = await docClient.send(
+      new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+        ExpressionAttributeValues: {
+          ':pk': `USER#${staleSubjectId}`,
+          ':skPrefix': 'CONNECTION#',
+        },
+      }),
+    );
+
+    if (!queryStale.Items || queryStale.Items.length === 0) {
+      throw new Error(`No connection record found for ${staleSubjectId}`);
+    }
+
+    const staleConnId = queryStale.Items[0].SK.replace('CONNECTION#', '');
+    console.log(`Connected with connectionId: ${staleConnId}`);
+
+    /**
+     * Technical Note on WebSocket Socket Closure:
+     * In the `ws` client library, `.terminate()` immediately destroys the underlying TCP socket
+     * without sending a RFC 6455 close control frame (unlike `.close()`, which initiates a graceful
+     * handshake triggering API Gateway's $disconnect route). This accurately simulates an abrupt
+     * network loss (e.g. mobile tunnel drop or device crash).
+     */
+    console.log('Forcibly terminating raw socket via .terminate() without close handshake...');
+    staleWs.terminate();
+    await sleep(1000);
+
+    // Trigger fan-out notification targeting the stale connection
+    console.log(`Triggering fan-out event for ${staleSubjectId}...`);
+    const { handleFanoutEvent } = require('../../services/notification-service/dist/handlers/sns-fanout');
+    const { ApiGatewayConnectionManager } = require('../../services/notification-service/dist/connection-manager');
+    const { DynamoClient } = require('@ride-dispatch/dynamo-client');
+    const dynamo = new DynamoClient(tableName, ENDPOINT_URL);
+    const cm = new ApiGatewayConnectionManager(wssUrl);
+
+    await handleFanoutEvent(
+      {
+        eventType: 'ride-cancelled',
+        rideId: `ride-stale-${Date.now()}`,
+        riderId: staleSubjectId,
+      },
+      {
+        ...dynamo,
+        connectionManager: cm,
+      },
+    );
+
+    // Confirm that both records are deleted from DynamoDB
+    const checkForward = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { PK: `CONNECTION#${staleConnId}`, SK: 'DETAILS' },
+      }),
+    );
+    const checkReverse = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { PK: `USER#${staleSubjectId}`, SK: `CONNECTION#${staleConnId}` },
+      }),
+    );
+
+    if (!checkForward.Item && !checkReverse.Item) {
+      console.log('[PASS] Stale connection records cleanly deleted as side effect of fan-out attempt.');
+    } else {
+      console.error('[FAIL] Stale records still exist in DynamoDB after fan-out attempt!');
+      passed = false;
+    }
+  } catch (err) {
+    console.error('[FAIL] Stale connection cleanup test failed:', err.message);
+    passed = false;
+  }
+
+  // ----------------------------------------------------------------------------
+  // Case E: Disconnect & Record Cleanup
+  // ----------------------------------------------------------------------------
+  console.log('\n--- Test Case E: Graceful Disconnect & Record Cleanup ---');
   if (validWs && validWs.readyState === WebSocket.OPEN && connectionId) {
     console.log(`Closing valid WebSocket connection (${connectionId})...`);
     validWs.close();

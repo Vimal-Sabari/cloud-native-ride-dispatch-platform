@@ -102,3 +102,9 @@ output "websocket_api_invoke_url" {
   description = "The WebSocket API Gateway invoke URL"
   value       = try(module.websocket_api[0].invoke_url, "")
 }
+
+output "notification_fanout_function_arn" {
+  description = "ARN of the Notification Service fanout Lambda function"
+  value       = module.notification_fanout_lambda.function_arn
+}
+

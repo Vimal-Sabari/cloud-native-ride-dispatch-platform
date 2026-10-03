@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "@ride-dispatch/dynamo-client": "*",
-    "@ride-dispatch/models": "*"
+    "@ride-dispatch/models": "*",
+    "@ride-dispatch/sns-client": "*"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.147",

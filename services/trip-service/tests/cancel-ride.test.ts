@@ -9,8 +9,8 @@ describe('cancelRide handler', () => {
     fakeDynamo = new FakeDynamoAccessor();
   });
 
-  const createTestRide = async (rideId: string, state: RideState) => {
-    const item = {
+  const createTestRide = async (rideId: string, state: RideState, driverId?: string) => {
+    const item: Record<string, unknown> = {
       PK: `RIDE#${rideId}`,
       SK: 'DETAILS',
       rideId,
@@ -21,6 +21,9 @@ describe('cancelRide handler', () => {
       createdAt: '2026-09-20T10:00:00.000Z',
       updatedAt: '2026-09-20T10:00:00.000Z',
     };
+    if (driverId) {
+      item.driverId = driverId;
+    }
     await fakeDynamo.putItem(item);
     return item;
   };
@@ -43,6 +46,83 @@ describe('cancelRide handler', () => {
         expect(stored?.state).toBe(RideState.CANCELLED);
       },
     );
+
+    it('publishes ride-cancelled event to SNS without driverId when cancelling REQUESTED ride', async () => {
+      const rideId = 'ride-cancel-sns-requested';
+      await createTestRide(rideId, RideState.REQUESTED);
+
+      const fakeSns = {
+        published: [] as Array<{ topicArn: string; message: Record<string, unknown> }>,
+        publish: jest.fn(async (topicArn: string, message: Record<string, unknown>) => {
+          fakeSns.published.push({ topicArn, message });
+        }),
+      };
+
+      const topicArn = 'arn:aws:sns:us-east-1:123456789012:match-events';
+      const res = await cancelRide(rideId, fakeDynamo, fakeSns, topicArn);
+      expect(res.statusCode).toBe(200);
+
+      expect(fakeSns.publish).toHaveBeenCalledTimes(1);
+      expect(fakeSns.published[0].topicArn).toBe(topicArn);
+      expect(fakeSns.published[0].message).toMatchObject({
+        eventType: 'ride-cancelled',
+        rideId,
+        riderId: 'rider-1',
+      });
+      expect(fakeSns.published[0].message.driverId).toBeUndefined();
+    });
+
+    it('publishes ride-cancelled event to SNS with driverId when cancelling MATCHED or DRIVER_EN_ROUTE ride', async () => {
+      const rideId = 'ride-cancel-sns-matched';
+      const driverId = 'driver-99';
+      await createTestRide(rideId, RideState.MATCHED, driverId);
+
+      const fakeSns = {
+        published: [] as Array<{ topicArn: string; message: Record<string, unknown> }>,
+        publish: jest.fn(async (topicArn: string, message: Record<string, unknown>) => {
+          fakeSns.published.push({ topicArn, message });
+        }),
+      };
+
+      const topicArn = 'arn:aws:sns:us-east-1:123456789012:match-events';
+      const res = await cancelRide(rideId, fakeDynamo, fakeSns, topicArn);
+      expect(res.statusCode).toBe(200);
+
+      expect(fakeSns.publish).toHaveBeenCalledTimes(1);
+      expect(fakeSns.published[0].message).toMatchObject({
+        eventType: 'ride-cancelled',
+        rideId,
+        riderId: 'rider-1',
+        driverId,
+      });
+    });
+
+    it('still returns 200 OK when SNS publish throws (best-effort non-blocking failure)', async () => {
+      const rideId = 'ride-cancel-sns-fail';
+      await createTestRide(rideId, RideState.MATCHED, 'driver-12');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const failingSns = {
+        publish: jest.fn().mockRejectedValue(new Error('SNS connection timed out')),
+      };
+
+      const topicArn = 'arn:aws:sns:us-east-1:123456789012:match-events';
+      const res = await cancelRide(rideId, fakeDynamo, failingSns, topicArn);
+
+      expect(res.statusCode).toBe(200);
+      const body = res.body as Record<string, unknown>;
+      expect(body.state).toBe(RideState.CANCELLED);
+
+      const stored = await fakeDynamo.getItem(`RIDE#${rideId}`, 'DETAILS');
+      expect(stored?.state).toBe(RideState.CANCELLED);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to publish ride-cancelled event to SNS'),
+        expect.anything(),
+      );
+
+      warnSpy.mockRestore();
+    });
   });
 
   describe('illegal cancellations', () => {

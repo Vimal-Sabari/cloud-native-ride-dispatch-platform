@@ -78,3 +78,50 @@ resource "aws_lambda_permission" "disconnect" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.websocket.execution_arn}/*/$disconnect"
 }
+
+# ------------------------------------------------------------------------------
+# SNS Subscription & Permissions (Fan-Out Lambda)
+# ------------------------------------------------------------------------------
+
+resource "aws_sns_topic_subscription" "fanout" {
+  topic_arn = var.match_events_topic_arn
+  protocol  = "lambda"
+  endpoint  = var.fanout_lambda_arn
+}
+
+resource "aws_lambda_permission" "sns_invoke_fanout" {
+  statement_id  = "AllowExecutionFromSNSMatchEvents"
+  action        = "lambda:InvokeFunction"
+  function_name = var.fanout_lambda_function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = var.match_events_topic_arn
+}
+
+resource "aws_iam_role_policy" "fanout_manage_connections" {
+  name = "${var.project_name}-${var.environment}-fanout-manage-connections"
+  role = var.fanout_lambda_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "execute-api:ManageConnections"
+        ]
+        Resource = "arn:aws:execute-api:*:*:${aws_apigatewayv2_api.websocket.id}/*/*/@connections/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = [
+          var.dynamodb_table_arn,
+          "${var.dynamodb_table_arn}/index/*"
+        ]
+      }
+    ]
+  })
+}

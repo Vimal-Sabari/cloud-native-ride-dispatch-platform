@@ -81,6 +81,62 @@ describe('internal assignDriver handler', () => {
       expect(storedPointer?.GSI3SK).toBe('ACTIVE_RIDE');
       expect(storedPointer?.rideId).toBe(rideId);
     });
+
+    it('publishes ride-matched event to SNS on success', async () => {
+      const rideId = 'ride-match-sns';
+      const driverId = 'driver-42';
+      await seedRide(rideId, RideState.REQUESTED);
+
+      const fakeSns = {
+        published: [] as Array<{ topicArn: string; message: Record<string, unknown> }>,
+        publish: jest.fn(async (topicArn: string, message: Record<string, unknown>) => {
+          fakeSns.published.push({ topicArn, message });
+        }),
+      };
+
+      const topicArn = 'arn:aws:sns:us-east-1:123456789012:match-events';
+      const res = await assignDriver(rideId, driverId, fakeDynamo, validHeaders, fakeSns, topicArn);
+      expect(res.statusCode).toBe(200);
+
+      expect(fakeSns.publish).toHaveBeenCalledTimes(1);
+      expect(fakeSns.published[0].topicArn).toBe(topicArn);
+      expect(fakeSns.published[0].message).toMatchObject({
+        eventType: 'ride-matched',
+        rideId,
+        riderId: 'rider-1',
+        driverId,
+      });
+      expect(typeof fakeSns.published[0].message.timestamp).toBe('string');
+    });
+
+    it('still returns 200 OK when SNS publish throws (best-effort non-blocking failure)', async () => {
+      const rideId = 'ride-match-sns-fail';
+      const driverId = 'driver-42';
+      await seedRide(rideId, RideState.REQUESTED);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const failingSns = {
+        publish: jest.fn().mockRejectedValue(new Error('SNS service unavailable')),
+      };
+
+      const topicArn = 'arn:aws:sns:us-east-1:123456789012:match-events';
+      const res = await assignDriver(rideId, driverId, fakeDynamo, validHeaders, failingSns, topicArn);
+
+      expect(res.statusCode).toBe(200);
+      const body = res.body as Record<string, unknown>;
+      expect(body.state).toBe(RideState.MATCHED);
+
+      // Verify ride was STILL transitioned to MATCHED in storage
+      const storedRide = await fakeDynamo.getItem(`RIDE#${rideId}`, 'DETAILS');
+      expect(storedRide?.state).toBe(RideState.MATCHED);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to publish ride-matched event to SNS'),
+        expect.anything(),
+      );
+
+      warnSpy.mockRestore();
+    });
   });
 
   describe('error and edge cases', () => {

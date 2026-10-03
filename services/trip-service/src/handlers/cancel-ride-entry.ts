@@ -4,6 +4,7 @@
 
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from "aws-lambda";
 import { DynamoClient, isConditionalCheckFailed } from "@ride-dispatch/dynamo-client";
+import { SnsClient } from "@ride-dispatch/sns-client";
 import { cancelRide } from "./cancel-ride";
 
 function getTableName(): string {
@@ -27,7 +28,19 @@ function getEndpoint(): string | undefined {
   return process.env.DYNAMO_ENDPOINT || undefined;
 }
 
+function getSnsEndpoint(): string | undefined {
+  if (process.env.AWS_ENDPOINT_URL) {
+    return process.env.AWS_ENDPOINT_URL;
+  }
+  if (process.env.LOCALSTACK_HOSTNAME) {
+    return `http://${process.env.LOCALSTACK_HOSTNAME}:4566`;
+  }
+  return process.env.SNS_ENDPOINT || undefined;
+}
+
 const dynamoClient = new DynamoClient(getTableName(), getEndpoint());
+const snsClient = new SnsClient(getSnsEndpoint());
+const matchEventsTopicArn = process.env.MATCH_EVENTS_TOPIC_ARN || "";
 
 function jsonResponse(statusCode: number, body: unknown): APIGatewayProxyResult {
   return {
@@ -46,7 +59,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       return jsonResponse(400, { error: "Missing rideId in path parameters" });
     }
 
-    const result = await cancelRide(rideId, dynamoClient);
+    const result = await cancelRide(rideId, dynamoClient, snsClient, matchEventsTopicArn);
     return jsonResponse(result.statusCode, result.body);
   } catch (error: unknown) {
     if (isConditionalCheckFailed(error)) {

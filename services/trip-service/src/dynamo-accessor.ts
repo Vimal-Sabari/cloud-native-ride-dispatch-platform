@@ -11,6 +11,10 @@ export interface QueryInput {
   expressionAttributeValues: Record<string, unknown>;
 }
 
+export interface SnsPublisher {
+  publish(topicArn: string, message: Record<string, unknown>): Promise<void>;
+}
+
 export interface DynamoAccessor {
   getItem(pk: string, sk: string): Promise<Record<string, unknown> | null>;
   putItem(item: Record<string, unknown>): Promise<void>;
