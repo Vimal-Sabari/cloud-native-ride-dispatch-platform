@@ -11,6 +11,8 @@ export interface DisconnectResult {
   statusCode: number;
 }
 
+export { handler, WebSocketDisconnectEvent, WebSocketResult } from './disconnect-entry';
+
 export async function handleDisconnect(
   connectionId: string,
   deps: DynamoAccessor,

@@ -161,6 +161,7 @@ jobs:
           npm run build --workspace=@ride-dispatch/models
           npm run build --workspace=@ride-dispatch/dynamo-client
           npm run build --workspace=@ride-dispatch/auth
+          npm run build --workspace=@ride-dispatch/notification-service
 
       - name: Start LocalStack
 
@@ -184,8 +185,8 @@ jobs:
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/cancel-ride-entry.ts cancel-ride
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/list-rider-rides-entry.ts list-rider-rides
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/internal-assign-driver-entry.ts assign-driver
-          bash scripts/build-node-lambda.sh services/notification-service src/handlers/connect-entry.ts connect
-          bash scripts/build-node-lambda.sh services/notification-service src/handlers/disconnect-entry.ts disconnect
+          bash scripts/build-node-lambda.sh services/notification-service src/handlers/connect.ts connect
+          bash scripts/build-node-lambda.sh services/notification-service src/handlers/disconnect.ts disconnect
           bash scripts/build-go-lambda.sh services/event-forwarder event-forwarder
 
       - name: Provision Terraform Infrastructure against LocalStack
@@ -243,6 +244,9 @@ jobs:
 
       - name: Run Event Forwarder Integration Test
         run: bash tests/integration/event-forwarder-test.sh
+
+      - name: Build Notification Service
+        run: npm run build --workspace=@ride-dispatch/notification-service
 
       - name: Run Notification Service WebSocket Integration Test
         run: node tests/integration/notification-connections-test.js

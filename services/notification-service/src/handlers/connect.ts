@@ -12,6 +12,8 @@ export interface ConnectResult {
   statusCode: number;
 }
 
+export { handler, WebSocketEvent, WebSocketResult } from './connect-entry';
+
 export async function handleConnect(
   connectionId: string,
   token: string | undefined,

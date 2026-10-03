@@ -118,6 +118,21 @@ async function main() {
     console.log('[INFO] API Gateway v2 (WebSocket) is unsupported in LocalStack Community tier.');
     console.log('[INFO] Verifying Notification Service handlers directly against LocalStack DynamoDB...\n');
 
+    const fs = require('fs');
+    const connectHandlerPath = path.resolve(
+      __dirname,
+      '../../services/notification-service/dist/handlers/connect.js',
+    );
+    if (!fs.existsSync(connectHandlerPath)) {
+      console.log(
+        '[INFO] dist/handlers/connect.js not found. Building @ride-dispatch/notification-service...',
+      );
+      execSync('npm run build --workspace=@ride-dispatch/notification-service', {
+        cwd: path.resolve(__dirname, '../..'),
+        stdio: 'inherit',
+      });
+    }
+
     const { DynamoClient } = require('@ride-dispatch/dynamo-client');
     const { handleConnect } = require('../../services/notification-service/dist/handlers/connect');
     const { handleDisconnect } = require('../../services/notification-service/dist/handlers/disconnect');
