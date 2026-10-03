@@ -249,6 +249,8 @@ jobs:
         run: npm run build --workspace=@ride-dispatch/notification-service
 
       - name: Run Notification Service WebSocket Integration Test
+        env:
+          JWT_SECRET: "dev-jwt-secret-for-ride-dispatch-local-testing"
         run: node tests/integration/notification-connections-test.js
 
       # Module 18: Fast single-driver/single-rider smoke test

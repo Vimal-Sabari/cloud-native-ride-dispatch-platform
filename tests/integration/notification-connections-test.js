@@ -38,7 +38,8 @@ const { DynamoDBDocumentClient, QueryCommand, GetCommand } = require('@aws-sdk/l
 
 const ENDPOINT_URL = process.env.AWS_ENDPOINT_URL || 'http://localhost:4566';
 const REGION = process.env.AWS_REGION || 'us-east-1';
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-for-ride-dispatch-local-testing';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-for-ride-dispatch-local-testing';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Resolve WebSocket URL from environment or terraform output
 function getWebSocketUrl() {
