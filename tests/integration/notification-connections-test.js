@@ -102,6 +102,18 @@ function getTableName() {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function wrapDynamoWithConnectionManager(dynamo, connectionManager) {
+  return {
+    getItem: (pk, sk) => dynamo.getItem(pk, sk),
+    putItem: (item) => dynamo.putItem(item),
+    deleteItem: (pk, sk) => dynamo.deleteItem(pk, sk),
+    query: (opt) => dynamo.query(opt),
+    conditionalPutItem: (item, cond) => dynamo.conditionalPutItem(item, cond),
+    updateRide: (rideId, updates, cond) => dynamo.updateRide(rideId, updates, cond),
+    connectionManager,
+  };
+}
+
 async function main() {
   console.log('========================================================');
   console.log('Notification Service WebSocket Connections & Fan-Out Test');
@@ -144,9 +156,13 @@ async function main() {
       __dirname,
       '../../services/notification-service/dist/handlers/connect.js',
     );
-    if (!fs.existsSync(connectHandlerPath)) {
+    const fanoutHandlerPath = path.resolve(
+      __dirname,
+      '../../services/notification-service/dist/handlers/sns-fanout.js',
+    );
+    if (!fs.existsSync(connectHandlerPath) || !fs.existsSync(fanoutHandlerPath)) {
       console.log(
-        '[INFO] dist/handlers/connect.js not found. Building @ride-dispatch/notification-service...',
+        '[INFO] notification-service dist handlers not found. Building @ride-dispatch/notification-service...',
       );
       execSync('npm run build --workspace=@ride-dispatch/notification-service', {
         cwd: path.resolve(__dirname, '../..'),
@@ -202,6 +218,19 @@ async function main() {
     console.log('\n--- Direct Test Case C: Fan-out event delivery to active connection ---');
     const directRideId = `ride-fanout-direct-${Date.now()}`;
     const directDriverId = `driver-fanout-direct-${Date.now()}`;
+
+    // Verify active connection exists in DynamoDB before fan-out
+    const preCheckConn = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { PK: `USER#${testUserId}`, SK: `CONNECTION#${mockConnId}` },
+      }),
+    );
+    if (!preCheckConn.Item) {
+      console.error('[FAIL] Active connection record was not found in DynamoDB before fan-out!');
+      process.exit(1);
+    }
+
     const postedMessages = [];
     const mockConnectionManager = {
       postToConnection: async (connectionId, payload) => {
@@ -217,10 +246,10 @@ async function main() {
       driverId: directDriverId,
     };
 
-    await handleFanoutEvent(fanoutMessage, {
-      ...dynamoAccessor,
-      connectionManager: mockConnectionManager,
-    });
+    await handleFanoutEvent(
+      fanoutMessage,
+      wrapDynamoWithConnectionManager(dynamoAccessor, mockConnectionManager),
+    );
 
     if (postedMessages.length !== 1 || postedMessages[0].connectionId !== mockConnId) {
       console.error('[FAIL] Fan-out did not post to expected active connection!', postedMessages);
@@ -265,10 +294,7 @@ async function main() {
         rideId: `ride-cancel-${Date.now()}`,
         riderId: staleSubjectId,
       },
-      {
-        ...dynamoAccessor,
-        connectionManager: staleConnectionManager,
-      },
+      wrapDynamoWithConnectionManager(dynamoAccessor, staleConnectionManager),
     );
 
     // Confirm both records are deleted from DynamoDB
@@ -620,10 +646,7 @@ async function main() {
         rideId: `ride-stale-${Date.now()}`,
         riderId: staleSubjectId,
       },
-      {
-        ...dynamo,
-        connectionManager: cm,
-      },
+      wrapDynamoWithConnectionManager(dynamo, cm),
     );
 
     // Confirm that both records are deleted from DynamoDB

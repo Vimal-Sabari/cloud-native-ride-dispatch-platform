@@ -48,7 +48,11 @@ export async function handleFanoutEvent(
   const activeConnections: Array<{ subjectId: string; connectionId: string }> = [];
 
   for (const subjectId of targetSubjects) {
-    const queryResult = await deps.query?.({
+    if (typeof deps.query !== 'function') {
+      throw new Error(`DynamoAccessor deps must provide a query method. Received deps.query: ${typeof deps.query}`);
+    }
+
+    const queryResult = await deps.query({
       keyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
       expressionAttributeValues: {
         ':pk': `USER#${subjectId}`,
@@ -72,6 +76,8 @@ export async function handleFanoutEvent(
       }
     }
   }
+
+  console.log(`Fan-out: Found ${activeConnections.length} active connection(s) for subjects [${Array.from(targetSubjects).join(', ')}]`);
 
   if (activeConnections.length === 0) {
     return;
