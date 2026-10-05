@@ -250,6 +250,9 @@ jobs:
       - name: Run SQS and SNS Infrastructure Integration Test
         run: bash tests/integration/sqs-sns-infra-test.sh
 
+      - name: Run Observability Infrastructure Integration Test
+        run: bash tests/integration/observability-infra-test.sh
+
       - name: Run Event Forwarder Integration Test
         run: bash tests/integration/event-forwarder-test.sh
 

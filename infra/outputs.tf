@@ -108,3 +108,14 @@ output "notification_fanout_function_arn" {
   value       = module.notification_fanout_lambda.function_arn
 }
 
+output "ops_alerts_topic_arn" {
+  description = "ARN of the SNS topic for operational alerts"
+  value       = module.observability.ops_alerts_topic_arn
+}
+
+output "dashboard_name" {
+  description = "Name of the CloudWatch platform overview dashboard"
+  value       = module.observability.dashboard_name
+}
+
+

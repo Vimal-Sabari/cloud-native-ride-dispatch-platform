@@ -31,4 +31,9 @@ variable "use_localstack" {
   default     = false
 }
 
+variable "ops_alert_email" {
+  description = "Email address for operations alerts and DLQ depth alarm notifications"
+  type        = string
+}
+
 

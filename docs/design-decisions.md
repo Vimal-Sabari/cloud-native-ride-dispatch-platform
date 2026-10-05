@@ -242,3 +242,20 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Zero Additional Infrastructure & Free-Tier Efficiency:** A dedicated metrics backend (e.g., Prometheus, InfluxDB, Datadog agent) incurs hosting and maintenance overhead. EMF leverages existing CloudWatch Logs log groups, meaning metrics generation introduces zero new infrastructure and incurs no incremental cost beyond existing log ingestion at the project's free-tier-conscious scale.
 - **Dual Metadata-Block-Plus-Flat-Fields Structure:** The shared libraries (`shared/logging/go` and `shared/logging/ts`) enforce the exact CloudWatch EMF dual structure: a top-level `_aws` directive containing `Timestamp`, `CloudWatchMetrics` array (with `Namespace`, `Dimensions` as `string[][]`, and `Metrics` as `[{Name, Unit}]`), coupled with flat sibling fields for all dimension key/values and metric name/values in the identical root JSON object.
 - **Coexistence with Plain JSON Logs:** EMF custom metrics (`MatchAttempted`, `MatchSucceeded`, `MatchFailed`, `MatchDecisionDurationMs`) peacefully coexist alongside plain JSON diagnostic logs and Module 24's `match_decision` telemetry, allowing both native CloudWatch alarms/dashboards and offline script-based analysis.
+
+## ADR: One Dashboard, Two DLQ-Depth Alarms — Minimal but Actionable Alerting
+
+**Decision:** Provision a single centralized CloudWatch dashboard (`<project_name>-<environment>-platform-overview`) and exactly two high-priority metric alarms (`ride-request-dlq-depth` and `location-events-dlq-depth`) alerting to an SNS operations topic (`<project_name>-<environment>-ops-alerts`), rather than creating dozens of noisy per-function thresholds.
+
+**Why:**
+
+- **High-Signal, Low-Noise Alerting Philosophy:** In distributed microservice event-driven platforms, alerting on raw Lambda errors or transient latency spikes causes alert fatigue, as standard retries and exponential backoff frequently heal transient issues. Messages arriving in a Dead Letter Queue (DLQ), however, signify that an event has exhausted all retries (`maxReceiveCount = 5`) and failed permanently. A DLQ depth greater than zero (`threshold = 0`, `ApproximateNumberOfMessagesVisible > 0`) is an unambiguous indicator of systemic processing failures requiring engineer intervention.
+- **Immediate Actionability:** The two DLQ alarms directly map to the platform's two core asynchronous data ingestion funnels: driver spatial heartbeats (`location-events-dlq`) and incoming ride dispatches (`ride-request-dlq`). Each alarm carries clear descriptions identifying the root queue, enabling on-call operators to immediately diagnose whether location indexing or the matching daemon is degrading.
+- **Single-Pane-of-Glass Visibility:** Rather than fragmenting operational views across separate per-service screens, one unified CloudWatch dashboard combines:
+  1. Service request and error volumes via custom EMF metrics (Location Service and Trip Service).
+  2. Matching Service operational metrics (`MatchAttempted`, `MatchSucceeded`, `MatchFailed`) and A/B strategy latency (`naive` vs `batch` p99 and average duration).
+  3. SQS queue and DLQ depths side-by-side (making accumulating backlogs instantly visible).
+  4. Platform-wide Lambda invocations, errors, and p99 durations across all functions.
+  5. DynamoDB single-table consumed capacity and throttling metrics.
+- **Cost & Complexity Containment:** CloudWatch alarms and custom dashboards incur minor AWS charges outside the free tier. Limiting alarms to critical DLQs keeps the infrastructure completely manageable, cost-effective, and fully reproducible across both local emulation and production environments.
+

@@ -453,4 +453,39 @@ resource "aws_lambda_permission" "localstack_sns_invoke_fanout" {
   source_arn    = module.sqs_sns.match_events_topic_arn
 }
 
+# ------------------------------------------------------------------------------
+# Module 26: Observability (Alarms, SNS Alerts, and CloudWatch Dashboard)
+# ------------------------------------------------------------------------------
+
+module "observability" {
+  source                     = "./modules/observability"
+  project_name               = var.project_name
+  environment                = var.environment
+  aws_region                 = var.aws_region
+  ops_alert_email            = var.ops_alert_email
+  ride_request_dlq_arn       = module.sqs_sns.ride_request_events_dlq_arn
+  ride_request_dlq_name      = module.sqs_sns.ride_request_events_dlq_name
+  location_events_dlq_arn    = module.sqs_sns.location_events_dlq_arn
+  location_events_dlq_name   = module.sqs_sns.location_events_dlq_name
+  ride_request_queue_name    = module.sqs_sns.ride_request_events_queue_name
+  location_events_queue_name = module.sqs_sns.location_events_queue_name
+  dynamodb_table_name        = module.dynamodb.table_name
+
+  lambda_function_names = [
+    module.location_update_location_lambda.function_name,
+    module.location_update_status_lambda.function_name,
+    module.auth_authorizer_lambda.function_name,
+    module.trip_request_ride_lambda.function_name,
+    module.trip_get_ride_lambda.function_name,
+    module.trip_cancel_ride_lambda.function_name,
+    module.trip_list_rider_rides_lambda.function_name,
+    module.trip_assign_driver_lambda.function_name,
+    module.notification_connect_lambda.function_name,
+    module.notification_disconnect_lambda.function_name,
+    module.notification_fanout_lambda.function_name,
+    module.event_forwarder_lambda.function_name
+  ]
+}
+
+
 

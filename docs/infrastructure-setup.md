@@ -282,4 +282,75 @@ terraform destroy -var-file=local.tfvars -auto-approve
 cd ..
 ```
 
+---
+
+## 7. Observability Dashboard & Alerting
+
+Module 26 provisions a centralized CloudWatch dashboard (`<project_name>-<environment>-platform-overview`) and DLQ-depth metric alarms backed by an SNS alerting topic.
+
+### Opening the Dashboard in AWS Management Console
+
+To view the dashboard in the AWS Management Console:
+1. Sign in to the AWS Management Console and select your deployment region (e.g., `us-east-1`).
+2. Navigate to CloudWatch Dashboards or use the direct URL pattern:
+   ```
+   https://<region>.console.aws.amazon.com/cloudwatch/home?region=<region>#dashboards/dashboard/<project_name>-<environment>-platform-overview
+   ```
+   For example, for the `aws-dev` deployment in `us-east-1`:
+   ```
+   https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards/dashboard/ride-dispatch-platform-aws-dev-platform-overview
+   ```
+
+### One-Time Email Subscription Confirmation
+
+The SNS topic subscription (`aws_sns_topic_subscription.ops_alerts_email`) uses the `email` protocol.
+- When Terraform applies against real AWS, AWS SNS automatically sends a "Subscription Confirmation" email to `var.ops_alert_email`.
+- An operator must open this email and click **Confirm subscription** before any operational alarms can be delivered. Until confirmed, the subscription remains in `PendingConfirmation` state.
+
+### Verification Limitations on LocalStack
+
+> [!IMPORTANT]
+> **LocalStack Verification Limitations:**
+> LocalStack's Community CloudWatch implementation supports resource definitions (storing and returning dashboard JSON, creating alarm entities) but does not evaluate metric math, transition alarms to `ALARM` state, or send outbound emails.
+> The automated integration test (`tests/integration/observability-infra-test.sh`) validates resource DEFINITION correctness only (verifying the dashboard JSON widget structure and alarm threshold properties). Functional alarm evaluation and end-to-end email delivery must be verified against real AWS.
+
+### Manual Verification Procedure against Real AWS (Module 29 and beyond)
+
+Once deployed to real AWS (`aws-dev`), operators can verify the complete alarm and email notification pipeline by injecting a test message directly into a DLQ:
+
+1. **Verify Alarm Initial State:**
+   Confirm the alarm is in `OK` state:
+   ```bash
+   aws cloudwatch describe-alarms \
+     --alarm-names "ride-dispatch-platform-aws-dev-ride-request-dlq-depth" \
+     --region us-east-1 \
+     --query "MetricAlarms[0].StateValue"
+   ```
+
+2. **Directly Send a Message to the DLQ:**
+   Bypass the standard processing pipeline and publish directly to the Dead Letter Queue:
+   ```bash
+   DLQ_URL=$(aws sqs get-queue-url \
+     --queue-name "ride-dispatch-platform-aws-dev-ride-request-events-dlq" \
+     --region us-east-1 \
+     --output text)
+
+   aws sqs send-message \
+     --queue-url "$DLQ_URL" \
+     --message-body '{"test": "manual-alarm-verification-message"}' \
+     --region us-east-1
+   ```
+
+3. **Observe Alarm Transition and Email Alert:**
+   - Within 60 seconds (the alarm evaluation period), CloudWatch detects `ApproximateNumberOfMessagesVisible >= 1`.
+   - The alarm transitions to `ALARM` state.
+   - An email notification containing alarm details is delivered to `ops_alert_email`.
+
+4. **Purge the DLQ:**
+   After confirming notification delivery, purge the test message from the DLQ to return the alarm to `OK`:
+   ```bash
+   aws sqs purge-queue --queue-url "$DLQ_URL" --region us-east-1
+   ```
+
+
 

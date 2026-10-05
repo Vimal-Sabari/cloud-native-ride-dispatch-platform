@@ -11,3 +11,9 @@
 environment      = "aws-dev"
 internal_api_key = "placeholder-aws-dev-internal-api-key"
 
+# IMPORTANT: Replace this placeholder with a verified operator email address
+# before deploying to real AWS. AWS SNS will send a subscription confirmation
+# email that must be clicked once before alerts can be delivered.
+ops_alert_email = "operator-alert@example.com"
+
+
