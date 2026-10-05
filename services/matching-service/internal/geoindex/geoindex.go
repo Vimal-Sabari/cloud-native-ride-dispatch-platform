@@ -86,7 +86,25 @@ func (idx *GeoIndex) RemoveDriver(driverID string) {
 			delete(idx.cells, oldGeohash)
 		}
 	}
-	delete(idx.drivers, driverID)
+}
+
+// UpdateDriverStatus updates the status of an existing driver under a write lock.
+// If the driver is not present in the index, this is a no-op.
+func (idx *GeoIndex) UpdateDriverStatus(driverID, status string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	geohash, exists := idx.drivers[driverID]
+	if !exists {
+		return
+	}
+
+	if cell, ok := idx.cells[geohash]; ok {
+		if entry, found := cell[driverID]; found {
+			entry.Status = status
+			cell[driverID] = entry
+		}
+	}
 }
 
 // GetDriver retrieves a copy of the DriverEntry for a given driver ID, if present.

@@ -170,3 +170,31 @@ func TestGeoIndex_ConcurrentAccessRace(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestGeoIndex_UpdateDriverStatus(t *testing.T) {
+	idx := NewGeoIndex()
+	lat, lng := 37.7749, -122.4194
+	hash, _ := geospatial.Encode(lat, lng, 5)
+
+	idx.UpsertDriver("driver-status-test", hash, "available", lat, lng)
+
+	pickup := geospatial.Point{Lat: lat, Lng: lng}
+	drivers, err := idx.NearbyAvailableDrivers(pickup, 5)
+	if err != nil || len(drivers) != 1 {
+		t.Fatalf("expected 1 available driver, got %d (err: %v)", len(drivers), err)
+	}
+
+	// Update status to busy
+	idx.UpdateDriverStatus("driver-status-test", "busy")
+	drivers, err = idx.NearbyAvailableDrivers(pickup, 5)
+	if err != nil || len(drivers) != 0 {
+		t.Fatalf("expected 0 available drivers after status update to busy, got %d", len(drivers))
+	}
+
+	// Revert status to available
+	idx.UpdateDriverStatus("driver-status-test", "available")
+	drivers, err = idx.NearbyAvailableDrivers(pickup, 5)
+	if err != nil || len(drivers) != 1 {
+		t.Fatalf("expected 1 available driver after status update to available, got %d", len(drivers))
+	}
+}

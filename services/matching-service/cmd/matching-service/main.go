@@ -143,8 +143,9 @@ func main() {
 	geoIndex := geoindex.NewGeoIndex()
 	matchStrategy := matcher.NaiveNearestMatcher{}
 	assigner := &assignment.Assigner{
-		Dynamo:      dynamoClient,
-		TripService: tripClient,
+		Dynamo:        dynamoClient,
+		TripService:   tripClient,
+		StatusUpdater: geoIndex,
 	}
 
 	var batchWindow *matcher.Window

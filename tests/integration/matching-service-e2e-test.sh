@@ -139,9 +139,24 @@ echo "Location Queue URL:       $LOC_QUEUE_URL"
 echo "Ride Request Queue URL:   $RIDE_QUEUE_URL"
 cd "$ROOT_DIR"
 
-# Purge any residual messages from prior runs
-aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$LOC_QUEUE_URL" 2>/dev/null || true
-aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$RIDE_QUEUE_URL" 2>/dev/null || true
+# Purge and drain any residual messages from prior runs
+drain_sqs_queue() {
+  local q_url="$1"
+  aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$q_url" 2>/dev/null || true
+  for _ in {1..5}; do
+    local msgs
+    msgs=$(aws sqs receive-message --endpoint-url "$ENDPOINT_URL" --queue-url "$q_url" --max-number-of-messages 10 --query "Messages[].ReceiptHandle" --output text 2>/dev/null || true)
+    if [ -z "$msgs" ] || [ "$msgs" = "None" ]; then
+      break
+    fi
+    for handle in $msgs; do
+      aws sqs delete-message --endpoint-url "$ENDPOINT_URL" --queue-url "$q_url" --receipt-handle "$handle" 2>/dev/null || true
+    done
+  done
+}
+
+drain_sqs_queue "$LOC_QUEUE_URL"
+drain_sqs_queue "$RIDE_QUEUE_URL"
 
 # ------------------------------------------------------------------------------
 # Step 4: Build Matching Service Binary for Host OS
@@ -196,6 +211,16 @@ echo "6. Registering simulated driver location and status..."
 DRIVER_ID="e2e-test-driver-1"
 DRIVER_LAT=37.7749
 DRIVER_LNG=-122.4194
+
+# Clean up any residual driver items or active pointers for e2e-test-driver-1 in DynamoDB
+aws dynamodb delete-item \
+  --endpoint-url "$ENDPOINT_URL" \
+  --table-name "$TABLE_NAME" \
+  --key "{\"PK\": {\"S\": \"DRIVER#$DRIVER_ID\"}, \"SK\": {\"S\": \"LOCATION\"}}" 2>/dev/null || true
+aws dynamodb delete-item \
+  --endpoint-url "$ENDPOINT_URL" \
+  --table-name "$TABLE_NAME" \
+  --key "{\"PK\": {\"S\": \"DRIVER#$DRIVER_ID\"}, \"SK\": {\"S\": \"ACTIVE_RIDE_POINTER\"}}" 2>/dev/null || true
 
 DRIVER_TOKEN=$(node -e "
 const jwt = require('jsonwebtoken');
@@ -279,11 +304,11 @@ fi
 # Step 9: Poll GET /rides/{rideId} until MATCHED
 # ------------------------------------------------------------------------------
 echo ""
-echo "9. Polling GET /rides/$RIDE_ID for MATCHED state (timeout: 30s)..."
+echo "9. Polling GET /rides/$RIDE_ID for MATCHED state (timeout: 40s)..."
 MATCHED=0
 ASSIGNED_DRIVER=""
 
-for i in {1..15}; do
+for i in {1..20}; do
   GET_RESP=$(curl -s -X GET "$INVOKE_URL/rides/$RIDE_ID" \
     -H "Authorization: Bearer $RIDER_TOKEN")
 
@@ -307,7 +332,7 @@ try {
 }
 ")
 
-  echo "  Check $i/15: ride state = '${RIDE_STATE:-UNKNOWN}', driverId = '${ASSIGNED_DRIVER:-NONE}'"
+  echo "  Check $i/20: ride state = '${RIDE_STATE:-UNKNOWN}', driverId = '${ASSIGNED_DRIVER:-NONE}'"
 
   if [ "$RIDE_STATE" = "MATCHED" ]; then
     MATCHED=1

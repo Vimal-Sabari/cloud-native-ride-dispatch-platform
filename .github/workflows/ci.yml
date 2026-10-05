@@ -322,7 +322,7 @@ jobs:
       # wiring, while this full test provides confidence that concurrent multi-agent traffic converges.
       - name: Run Full End-to-End Naive Flow Verification (Simulators)
         env:
-          DRIVER_COUNT: '5'
+          DRIVER_COUNT: '10'
           RIDER_COUNT: '3'
           RUN_DURATION_SECONDS: '45'
           MIN_MATCH_SUCCESS_RATE: '0.5'

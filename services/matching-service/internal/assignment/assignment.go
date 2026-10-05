@@ -25,8 +25,14 @@ type TripServiceClient interface {
 
 // Assigner orchestrates the two-phase claim-then-confirm driver assignment pipeline.
 type Assigner struct {
-	Dynamo      DynamoWriter
-	TripService TripServiceClient
+	Dynamo        DynamoWriter
+	TripService   TripServiceClient
+	StatusUpdater DriverStatusUpdater
+}
+
+// DriverStatusUpdater allows Assigner to synchronize driver availability immediately with the in-memory spatial index.
+type DriverStatusUpdater interface {
+	UpdateDriverStatus(driverID, status string)
 }
 
 // NewAssigner creates a new Assigner instance.
@@ -75,13 +81,33 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 			continue
 		}
 
-		// 2. Build updated claim item with Status = "busy"
-		claimItem := make(map[string]types.AttributeValue, len(item)+4)
+		// Pre-filter: verify candidate driver status from database record
+		driverStatus := ""
+		if s, ok := item["status"].(*types.AttributeValueMemberS); ok && s.Value != "" {
+			driverStatus = s.Value
+		} else if s, ok := item["Status"].(*types.AttributeValueMemberS); ok && s.Value != "" {
+			driverStatus = s.Value
+		}
+		if driverStatus != "" && driverStatus != "available" {
+			logger.Info("Assigner: candidate driver is not available in database; skipping candidate", map[string]interface{}{
+				"driverId": candidate.DriverID,
+				"status":   driverStatus,
+			})
+			if a.StatusUpdater != nil {
+				a.StatusUpdater.UpdateDriverStatus(candidate.DriverID, driverStatus)
+			}
+			continue
+		}
+
+		// 2. Build updated claim item with Status = "busy" and assigned ride tracking
+		claimItem := make(map[string]types.AttributeValue, len(item)+6)
 		for k, v := range item {
 			claimItem[k] = v
 		}
 		claimItem["Status"] = &types.AttributeValueMemberS{Value: "busy"}
 		claimItem["status"] = &types.AttributeValueMemberS{Value: "busy"}
+		claimItem["assigned_ride_id"] = &types.AttributeValueMemberS{Value: request.RideID}
+		claimItem["assignedRideId"] = &types.AttributeValueMemberS{Value: request.RideID}
 		if _, ok := claimItem["GSI1SK"]; ok {
 			claimItem["GSI1SK"] = &types.AttributeValueMemberS{
 				Value: fmt.Sprintf("DRIVER#busy#%s", candidate.DriverID),
@@ -106,7 +132,14 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 			logger.Info("Assigner: driver claim lost race (conditional check failed); attempting next candidate", map[string]interface{}{
 				"driverId": candidate.DriverID,
 			})
+			if a.StatusUpdater != nil {
+				a.StatusUpdater.UpdateDriverStatus(candidate.DriverID, "busy")
+			}
 			continue
+		}
+
+		if a.StatusUpdater != nil {
+			a.StatusUpdater.UpdateDriverStatus(candidate.DriverID, "busy")
 		}
 
 		logger.Info("Assigner: successfully claimed driver; notifying Trip Service", map[string]interface{}{
@@ -114,8 +147,24 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 			"rideId":   request.RideID,
 		})
 
-		// 4. Confirm match with Trip Service
-		tripErr := a.TripService.AssignDriver(ctx, request.RideID, candidate.DriverID)
+		// 4. Confirm match with Trip Service (with retry for transient errors)
+		var tripErr error
+		const maxTripRetries = 2
+		for attempt := 0; attempt <= maxTripRetries; attempt++ {
+			tripErr = a.TripService.AssignDriver(ctx, request.RideID, candidate.DriverID)
+			if tripErr == nil {
+				break
+			}
+			if attempt < maxTripRetries {
+				select {
+				case <-ctx.Done():
+					tripErr = ctx.Err()
+					break
+				case <-time.After(time.Duration(50*(1<<attempt)) * time.Millisecond):
+				}
+			}
+		}
+
 		if tripErr == nil {
 			logger.Info("Assigner: driver assignment confirmed by Trip Service", map[string]interface{}{
 				"driverId":       candidate.DriverID,
@@ -148,6 +197,9 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 				"driverId": candidate.DriverID,
 				"rideId":   request.RideID,
 			})
+			if a.StatusUpdater != nil {
+				a.StatusUpdater.UpdateDriverStatus(candidate.DriverID, "available")
+			}
 		}
 
 		return nil, fmt.Errorf("assign driver %s to ride %s failed in TripService: %w", candidate.DriverID, request.RideID, tripErr)
@@ -189,6 +241,8 @@ func RevertDriverClaim(ctx context.Context, dynamo DynamoWriter, driverID, expec
 	}
 	revertItem["Status"] = &types.AttributeValueMemberS{Value: "available"}
 	revertItem["status"] = &types.AttributeValueMemberS{Value: "available"}
+	delete(revertItem, "assignedRideId")
+	delete(revertItem, "assigned_ride_id")
 	if _, ok := revertItem["GSI1SK"]; ok {
 		revertItem["GSI1SK"] = &types.AttributeValueMemberS{
 			Value: fmt.Sprintf("DRIVER#available#%s", driverID),

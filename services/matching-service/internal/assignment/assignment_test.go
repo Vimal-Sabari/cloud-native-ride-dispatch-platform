@@ -391,3 +391,52 @@ func TestAssigner_ContextCancelled(t *testing.T) {
 		t.Fatalf("expected context cancellation error")
 	}
 }
+
+type fakeStatusUpdater struct {
+	mu      sync.Mutex
+	updates map[string]string
+}
+
+func (f *fakeStatusUpdater) UpdateDriverStatus(driverID, status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updates[driverID] = status
+}
+
+func TestAssigner_StatusUpdaterAndAssignedRideId(t *testing.T) {
+	fakeDdb := newFakeDynamoWriter()
+	fakeDdb.items["DRIVER#driver-1#LOCATION"] = sampleDriverItem("driver-1", "available")
+	fakeDdb.conditionalResults = []conditionalResult{{success: true, err: nil}}
+
+	fakeTrip := newFakeTripServiceClient()
+	updater := &fakeStatusUpdater{updates: make(map[string]string)}
+
+	assigner := NewAssigner(fakeDdb, fakeTrip)
+	assigner.StatusUpdater = updater
+
+	req := models.RideRequest{RideID: "ride-test-sync", RiderID: "rider-1"}
+	candidates := []models.MatchCandidate{{DriverID: "driver-1", DistanceMeters: 50}}
+
+	res, err := assigner.Assign(context.Background(), req, candidates)
+	if err != nil || !res.Assigned {
+		t.Fatalf("expected successful assignment: %v", err)
+	}
+
+	// Verify StatusUpdater marked driver-1 busy
+	updater.mu.Lock()
+	status, exists := updater.updates["driver-1"]
+	updater.mu.Unlock()
+	if !exists || status != "busy" {
+		t.Errorf("expected StatusUpdater to set driver-1 to busy, got %v", status)
+	}
+
+	// Verify claimItem includes assigned_ride_id and assignedRideId
+	claimCall := fakeDdb.conditionalCalls[0]
+	if val, ok := claimCall.item["assigned_ride_id"].(*types.AttributeValueMemberS); !ok || val.Value != "ride-test-sync" {
+		t.Errorf("expected assigned_ride_id to be 'ride-test-sync', got %+v", claimCall.item["assigned_ride_id"])
+	}
+	if val, ok := claimCall.item["assignedRideId"].(*types.AttributeValueMemberS); !ok || val.Value != "ride-test-sync" {
+		t.Errorf("expected assignedRideId to be 'ride-test-sync', got %+v", claimCall.item["assignedRideId"])
+	}
+}
+
