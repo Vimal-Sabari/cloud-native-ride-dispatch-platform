@@ -23,6 +23,11 @@ output "dynamodb_gsi3_name" {
   value       = module.dynamodb.gsi3_name
 }
 
+output "dynamodb_gsi4_name" {
+  description = "Name of GSI4 (matched rides index for stale-match reassignment)"
+  value       = module.dynamodb.gsi4_name
+}
+
 output "api_gateway_invoke_url" {
   description = "Base invoke URL of the API Gateway deployment stage"
   value       = module.api_gateway.invoke_url
@@ -116,6 +121,16 @@ output "ops_alerts_topic_arn" {
 output "dashboard_name" {
   description = "Name of the CloudWatch platform overview dashboard"
   value       = module.observability.dashboard_name
+}
+
+output "trip_reassign_stale_matches_function_name" {
+  description = "Name of the stale match reassignment Lambda function"
+  value       = module.trip_reassign_stale_matches_lambda.function_name
+}
+
+output "trip_reassign_stale_matches_function_arn" {
+  description = "ARN of the stale match reassignment Lambda function"
+  value       = module.trip_reassign_stale_matches_lambda.function_arn
 }
 
 

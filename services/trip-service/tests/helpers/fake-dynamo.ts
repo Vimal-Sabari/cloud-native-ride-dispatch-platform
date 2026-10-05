@@ -51,6 +51,10 @@ export class FakeDynamoAccessor implements DynamoAccessor {
         if (targetValues.includes(item.GSI3PK)) {
           results.push(JSON.parse(JSON.stringify(item)));
         }
+      } else if (input.indexName === 'GSI4') {
+        if (targetValues.includes(item.GSI4PK)) {
+          results.push(JSON.parse(JSON.stringify(item)));
+        }
       } else {
         // Main table scan fallback
         if (targetValues.includes(item.PK)) {
@@ -65,6 +69,8 @@ export class FakeDynamoAccessor implements DynamoAccessor {
   async conditionalPutItem(
     item: Record<string, unknown>,
     conditionExpression: string,
+    _expressionAttributeNames?: Record<string, string>,
+    expressionAttributeValues?: Record<string, unknown>,
   ): Promise<boolean> {
     const key = this.makeKey(item.PK, item.SK);
     const existing = this.storage.get(key);
@@ -80,12 +86,51 @@ export class FakeDynamoAccessor implements DynamoAccessor {
       return true;
     }
 
-    // Pattern 2: state = <VALUE> or #state = :<VALUE>
+    // Pattern 2: compound condition e.g. #state = :matched AND #updatedAt = :oldUpdatedAt
+    if (normalizedExpr.includes('AND')) {
+      if (!existing) return false;
+      const parts = normalizedExpr.split(/\s+AND\s+/i);
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.includes('#state') || trimmed.startsWith('state')) {
+          const expected = expressionAttributeValues?.[':matched'] || 'MATCHED';
+          if (existing.state !== expected) return false;
+        } else if (trimmed.includes('#updatedAt') || trimmed.startsWith('updatedAt')) {
+          const expected = expressionAttributeValues?.[':oldUpdatedAt'];
+          if (expected !== undefined && existing.updatedAt !== expected) return false;
+        } else if (trimmed.includes('#status') || trimmed.startsWith('status')) {
+          const expected = expressionAttributeValues?.[':busy'] || 'busy';
+          if (existing.status !== expected && existing.Status !== expected) return false;
+        }
+      }
+      this.storage.set(key, JSON.parse(JSON.stringify(item)));
+      return true;
+    }
+
+    // Pattern 3: status check e.g. #status = :busy or status = busy
+    const statusMatch = normalizedExpr.match(/^(?:#status|status)\s*=\s*(.+)$/i);
+    if (statusMatch) {
+      let expectedStatus = statusMatch[1].trim().replace(/^['"]|['"]$/g, '');
+      if (expectedStatus.startsWith(':')) {
+        expectedStatus = String(
+          expressionAttributeValues?.[expectedStatus] || expectedStatus.slice(1),
+        );
+      }
+      if (!existing || (existing.status !== expectedStatus && existing.Status !== expectedStatus)) {
+        return false;
+      }
+      this.storage.set(key, JSON.parse(JSON.stringify(item)));
+      return true;
+    }
+
+    // Pattern 4: state = <VALUE> or #state = :<VALUE>
     const stateMatch = normalizedExpr.match(/^(?:#state|state)\s*=\s*(.+)$/i);
     if (stateMatch) {
       let expectedState = stateMatch[1].trim().replace(/^['"]|['"]$/g, '');
       if (expectedState.startsWith(':')) {
-        expectedState = expectedState.slice(1).toUpperCase();
+        expectedState = String(
+          expressionAttributeValues?.[expectedState] || expectedState.slice(1).toUpperCase(),
+        );
       }
       if (!existing || existing.state !== expectedState) {
         return false; // Stored state does not match expected state
@@ -96,7 +141,7 @@ export class FakeDynamoAccessor implements DynamoAccessor {
 
     throw new Error(
       `FakeDynamoAccessor: unsupported conditionExpression: "${conditionExpression}". ` +
-        `This test fake only supports attribute_not_exists(PK) and state = <value>.`,
+        `This test fake only supports attribute_not_exists(PK), state = <value>, compound state/updatedAt, and status = <value>.`,
     );
   }
 
@@ -152,12 +197,20 @@ export class FakeDynamoAccessor implements DynamoAccessor {
       }
     }
 
-    const updated = {
+    const updated: Record<string, unknown> = {
       ...existing,
       ...(values.state !== undefined ? { state: values.state } : {}),
       ...(values.driverId !== undefined ? { driverId: values.driverId } : {}),
       updatedAt: new Date().toISOString(),
     };
+
+    if (values.state === 'MATCHED') {
+      updated.GSI4PK = 'STATE#MATCHED';
+      updated.GSI4SK = updated.updatedAt;
+    } else if (values.state !== undefined && values.state !== 'MATCHED') {
+      delete updated.GSI4PK;
+      delete updated.GSI4SK;
+    }
 
     this.storage.set(key, JSON.parse(JSON.stringify(updated)));
     return updated;

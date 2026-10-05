@@ -23,6 +23,11 @@ output "gsi3_name" {
   value       = "GSI3"
 }
 
+output "gsi4_name" {
+  description = "Name of GSI4 (matched rides index for stale-match reassignment)"
+  value       = "GSI4"
+}
+
 output "stream_arn" {
   description = "The ARN of the DynamoDB stream"
   value       = aws_dynamodb_table.main.stream_arn

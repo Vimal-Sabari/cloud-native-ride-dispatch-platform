@@ -21,6 +21,7 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1146.0",
     "@ride-dispatch/dynamo-client": "*",
     "@ride-dispatch/logging": "*",
     "@ride-dispatch/models": "*",

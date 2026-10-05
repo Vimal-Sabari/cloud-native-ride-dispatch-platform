@@ -259,3 +259,38 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
   5. DynamoDB single-table consumed capacity and throttling metrics.
 - **Cost & Complexity Containment:** CloudWatch alarms and custom dashboards incur minor AWS charges outside the free tier. Limiting alarms to critical DLQs keeps the infrastructure completely manageable, cost-effective, and fully reproducible across both local emulation and production environments.
 
+## ADR: System-Initiated MATCHED→REQUESTED Transition for Driver-Accept Timeouts
+
+**Decision:** Implement an automated, scheduled background worker (`reassign-stale-matches`) that detects rides remaining in `MATCHED` state past a configured driver acceptance timeout (`DRIVER_ACCEPT_TIMEOUT_SECONDS`, default 60 seconds), resets their state back to `REQUESTED`, releases the assigned driver back to `available` status, and directly re-enqueues the ride request to the `ride-request-events` SQS queue.
+
+**Why:**
+
+- **Resolving the Abandoned Match Deadlock:**
+  - When Matching Service matches a rider with a driver, the ride enters `MATCHED` state and the driver is marked `busy`. If the driver's device loses network connectivity, crashes, or the driver simply ignores the incoming dispatch prompt, the ride would remain stuck in limbo indefinitely without automated timeout handling.
+  - The rider would wait forever without a ride, and the driver would remain permanently `busy`, locking out valuable supply.
+- **Strictly System-Initiated Transition:**
+  - Transitioning from `MATCHED` back to `REQUESTED` is reserved EXCLUSIVELY for this automated timeout reassignment job. Rider-facing and driver-facing handlers are explicitly prohibited by state machine validation from triggering this reverse transition.
+- **Sparse GSI4 Query Efficiency:**
+  - To avoid costly full-table scans at scale, a sparse secondary index (`GSI4PK = "STATE#MATCHED"`, `GSI4SK = updatedAt`) is introduced. Because DynamoDB indexes items only when the index attributes exist, GSI4 indexes solely active `MATCHED` rides. When a ride leaves `MATCHED` (accepted, cancelled, or timed out), `GSI4PK` and `GSI4SK` are removed.
+- **Race Condition Prevention via Optimistic Concurrency:**
+  - The transition uses DynamoDB conditional writes: `#state = :matched AND #updatedAt = :oldUpdatedAt`.
+  - If a driver accepts the match (`DRIVER_EN_ROUTE`) or the rider cancels (`CANCELLED`) concurrently while the reassignment job is inspecting the ride, the conditional check fails gracefully. The job logs the concurrent modification and skips the ride without releasing the driver or double-enqueuing.
+- **Direct SQS Re-enqueue vs DynamoDB Streams:**
+  - Module 16's event-forwarder classifies DynamoDB Streams events: `ride-requested` events are emitted EXCLUSIVELY on table `INSERT` events with `state == "REQUESTED"`.
+  - Because stale-match reassignment produces a DynamoDB `MODIFY` event (`MATCHED` -> `REQUESTED`), modifying the forwarder to capture update mutations would risk event loops or duplicate events on unrelated updates. Direct SQS enqueue strictly preserves event-forwarder classification invariants.
+- **Polyglot Symmetry:**
+  - Releasing the driver's reservation in TypeScript mirrors Go Matching Service's `RevertDriverClaim` conditional write logic, upholding the repository's convention of implementing identical conceptual patterns cleanly in each service's native language.
+
+## ADR: Idempotency Audit Findings
+
+**Decision:** Systematically audit every DynamoDB write path across the platform and document all concurrency control and idempotency mechanisms in `docs/idempotency-audit.md`.
+
+**Why:**
+
+- **Formal Verification of Data Integrity:**
+  - In a distributed event-driven dispatch platform, race conditions between rider cancellations, concurrent driver assignments, GPS telemetry bursts, and WebSocket reconnects can cause split-brain states (e.g. one driver double-booked to two riders, or multiple drivers dispatched to a single trip).
+  - A systematic audit documents every write operation, the specific conditional expressions employed (`attribute_not_exists`, `#state = :expected`, `#status = :available`), and the exact failure handling semantics (HTTP 409 Conflict vs idempotent replay vs retry).
+- **Justified Divergence (LWW vs CAS):**
+  - High-frequency telemetry (Location Service) and ephemeral socket tracking (Notification Service) deliberately avoid conditional checks in favor of idempotent overwrites and deletes. The audit formally articulates why last-write-wins is domain-appropriate for telemetry and why CAS locks are mandatory for trip reservations.
+- **Audit Outcome:**
+  - All write paths across Location Service, Trip Service, Matching Service, and Notification Service were verified to be strictly concurrency-safe, with zero unprotected multi-writer corruption vectors. Detailed analysis for each endpoint and method is preserved in [docs/idempotency-audit.md](idempotency-audit.md).

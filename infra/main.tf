@@ -254,6 +254,72 @@ resource "aws_iam_role_policy" "trip_sns_publish_policy" {
   })
 }
 
+# Trip Service - Reassign Stale Matches Lambda (Module 27)
+module "trip_reassign_stale_matches_lambda" {
+  source                 = "./modules/lambda"
+  runtime                = "nodejs20.x"
+  handler                = "index.handler"
+  artifact_path          = "${path.module}/../services/trip-service/reassign-stale-matches.zip"
+  function_name          = "${var.project_name}-${var.environment}-trip-reassign-stale-matches"
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  timeout                = 30
+  memory_size            = 128
+
+  environment_variables = {
+    DYNAMO_TABLE_NAME             = module.dynamodb.table_name
+    RIDES_TABLE                   = module.dynamodb.table_name
+    TABLE_NAME                    = module.dynamodb.table_name
+    AWS_REGION                    = var.aws_region
+    AWS_ENDPOINT_URL              = var.environment == "local" ? "http://localstack:4566" : ""
+    DYNAMO_ENDPOINT               = var.environment == "local" ? "http://localstack:4566" : ""
+    SQS_ENDPOINT                  = var.environment == "local" ? "http://localstack:4566" : ""
+    RIDE_REQUEST_EVENTS_QUEUE_URL = module.sqs_sns.ride_request_events_queue_url
+    DRIVER_ACCEPT_TIMEOUT_SECONDS = "60"
+    INTERNAL_API_KEY              = var.internal_api_key
+  }
+}
+
+# Grant Trip Service Reassign Stale Matches Lambda permissions to send to ride-request-events SQS queue
+resource "aws_iam_role_policy" "trip_reassign_sqs_send_policy" {
+  name = "${var.project_name}-${var.environment}-trip-reassign-sqs-send"
+  role = module.trip_reassign_stale_matches_lambda.role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage"
+        ]
+        Resource = module.sqs_sns.ride_request_events_queue_arn
+      }
+    ]
+  })
+}
+
+# Scheduled EventBridge Rule for Stale Match Reassignment (Module 27)
+resource "aws_cloudwatch_event_rule" "reassign_stale_matches" {
+  name                = "${var.project_name}-${var.environment}-reassign-stale-matches"
+  description         = "Trigger stale match reassignment check every 30 seconds"
+  schedule_expression = "rate(30 seconds)"
+}
+
+resource "aws_cloudwatch_event_target" "reassign_stale_matches_target" {
+  rule      = aws_cloudwatch_event_rule.reassign_stale_matches.name
+  target_id = "ReassignStaleMatchesTarget"
+  arn       = module.trip_reassign_stale_matches_lambda.function_arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_to_reassign" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = module.trip_reassign_stale_matches_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.reassign_stale_matches.arn
+}
+
 
 # Dedicated IAM policy for Event Forwarder Lambda:
 # Grants permissions to read DynamoDB Streams and send messages to destination SQS queues

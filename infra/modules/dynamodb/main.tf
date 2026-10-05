@@ -54,6 +54,17 @@ resource "aws_dynamodb_table" "main" {
     type = "S"
   }
 
+  # GSI4 attributes: Query rides in MATCHED state for stale-match reassignment
+  attribute {
+    name = "GSI4PK"
+    type = "S"
+  }
+
+  attribute {
+    name = "GSI4SK"
+    type = "S"
+  }
+
   # GSI1: Driver availability by geohash
   # Purpose: Query all available drivers within a geohash cell.
   # Example: GSI1PK = "GEOHASH#u4pruy", GSI1SK = "DRIVER#AVAILABLE#driver-123"
@@ -81,6 +92,17 @@ resource "aws_dynamodb_table" "main" {
     name            = "GSI3"
     hash_key        = "GSI3PK"
     range_key       = "GSI3SK"
+    projection_type = "ALL"
+  }
+
+  # GSI4: Stale match reassignment query index
+  # Purpose: Efficiently query rides in MATCHED state, sorted by updatedAt, to detect driver-accept timeouts.
+  # Sparse index: Only items with GSI4PK and GSI4SK (rides currently in MATCHED state) are indexed.
+  # Example: GSI4PK = "STATE#MATCHED", GSI4SK = "2026-09-18T10:00:00.000Z"
+  global_secondary_index {
+    name            = "GSI4"
+    hash_key        = "GSI4PK"
+    range_key       = "GSI4SK"
     projection_type = "ALL"
   }
 

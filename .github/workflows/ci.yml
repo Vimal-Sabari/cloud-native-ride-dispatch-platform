@@ -192,6 +192,7 @@ jobs:
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/cancel-ride-entry.ts cancel-ride
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/list-rider-rides-entry.ts list-rider-rides
           bash scripts/build-node-lambda.sh services/trip-service src/handlers/internal-assign-driver-entry.ts assign-driver
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/reassign-stale-matches-entry.ts reassign-stale-matches
           bash scripts/build-node-lambda.sh services/notification-service src/handlers/connect.ts connect
           bash scripts/build-node-lambda.sh services/notification-service src/handlers/disconnect.ts disconnect
           bash scripts/build-node-lambda.sh services/notification-service src/handlers/sns-fanout-entry.ts fanout
@@ -261,7 +262,7 @@ jobs:
 
       - name: Run Notification Service WebSocket Integration Test
         env:
-          JWT_SECRET: "dev-jwt-secret-for-ride-dispatch-local-testing"
+          JWT_SECRET: 'dev-jwt-secret-for-ride-dispatch-local-testing'
         run: node tests/integration/notification-connections-test.js
 
       # Module 18: Fast single-driver/single-rider smoke test
@@ -278,6 +279,46 @@ jobs:
           RUN_DURATION_SECONDS: '45'
           MIN_MATCH_SUCCESS_RATE: '0.5'
         run: bash tests/integration/e2e-naive-flow-test.sh
+
+      # Module 27: Fault-tolerance hardening tests
+      - name: Run Stale Match Reassignment Integration Test
+        run: bash tests/integration/stale-match-reassignment-test.sh
+
+      - name: Validate DLQ Redrive Tooling
+        run: |
+          export AWS_ACCESS_KEY_ID=test
+          export AWS_SECRET_ACCESS_KEY=test
+          export AWS_DEFAULT_REGION=us-east-1
+          ENDPOINT_URL="http://localhost:4566"
+          DLQ_URL=$(aws sqs get-queue-url --endpoint-url "$ENDPOINT_URL" --queue-name "ride-dispatch-platform-local-ride-request-events-dlq" --query "QueueUrl" --output text)
+          SRC_URL=$(aws sqs get-queue-url --endpoint-url "$ENDPOINT_URL" --queue-name "ride-dispatch-platform-local-ride-request-events" --query "QueueUrl" --output text)
+
+          # Purge queues
+          aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$DLQ_URL" 2>/dev/null || true
+          aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$SRC_URL" 2>/dev/null || true
+          sleep 1
+
+          # Send a test message directly to DLQ
+          TEST_MSG="{\"test\":\"dlq-redrive-validation\",\"id\":\"$RANDOM\"}"
+          echo "Sending test message to DLQ: $DLQ_URL"
+          aws sqs send-message --endpoint-url "$ENDPOINT_URL" --queue-url "$DLQ_URL" --message-body "$TEST_MSG"
+
+          # Run the redrive script
+          export AWS_ENDPOINT_URL="$ENDPOINT_URL"
+          bash scripts/redrive-dlq.sh "$DLQ_URL" "$SRC_URL"
+
+          # Verify message arrived in source queue
+          echo "Verifying message arrived in source queue: $SRC_URL"
+          RCV=$(aws sqs receive-message --endpoint-url "$ENDPOINT_URL" --queue-url "$SRC_URL" --max-number-of-messages 10)
+          echo "$RCV" | grep -q "dlq-redrive-validation" || { echo "Message missing from source queue!"; exit 1; }
+
+          # Verify DLQ is now empty
+          DLQ_RCV=$(aws sqs receive-message --endpoint-url "$ENDPOINT_URL" --queue-url "$DLQ_URL" --wait-time-seconds 1)
+          if [ -n "$DLQ_RCV" ]; then
+            echo "DLQ is not empty!"
+            exit 1
+          fi
+          echo "DLQ redrive validation PASSED!"
 
       - name: Teardown Terraform Infrastructure
         if: always()

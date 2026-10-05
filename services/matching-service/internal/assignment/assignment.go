@@ -136,22 +136,7 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 			"error":    tripErr.Error(),
 		})
 
-		revertItem := make(map[string]types.AttributeValue, len(claimItem))
-		for k, v := range claimItem {
-			revertItem[k] = v
-		}
-		revertItem["Status"] = &types.AttributeValueMemberS{Value: "available"}
-		revertItem["status"] = &types.AttributeValueMemberS{Value: "available"}
-		if _, ok := revertItem["GSI1SK"]; ok {
-			revertItem["GSI1SK"] = &types.AttributeValueMemberS{
-				Value: fmt.Sprintf("DRIVER#available#%s", candidate.DriverID),
-			}
-		}
-		revertNow := time.Now().UTC().Format(time.RFC3339)
-		revertItem["UpdatedAt"] = &types.AttributeValueMemberS{Value: revertNow}
-		revertItem["updatedAt"] = &types.AttributeValueMemberS{Value: revertNow}
-
-		reverted, revertErr := a.Dynamo.ConditionalPutItem(ctx, revertItem, "#status = :busy")
+		reverted, revertErr := RevertDriverClaim(ctx, a.Dynamo, candidate.DriverID, "busy", claimItem)
 		if revertErr != nil || !reverted {
 			logger.Error("Assigner: failed to revert driver claim after TripService confirmation failure. Driver remains in busy state and requires reconciliation", revertErr, map[string]interface{}{
 				"driverId": candidate.DriverID,
@@ -177,4 +162,42 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 		Assigned: false,
 		DriverID: "",
 	}, nil
+}
+
+// RevertDriverClaim executes an optimistic compensating conditional write to revert a driver's
+// status back to "available" if their current status matches expectedCurrentStatus (typically "busy").
+// It preserves existing driver attributes (coordinates, geohash) while updating Status, GSI1SK, and UpdatedAt.
+// Returns (true, nil) on successful revert, (false, nil) if conditional check failed, or (false, err) on DynamoDB error.
+func RevertDriverClaim(ctx context.Context, dynamo DynamoWriter, driverID, expectedCurrentStatus string, baseItem map[string]types.AttributeValue) (bool, error) {
+	item := baseItem
+	if len(item) == 0 {
+		pk := "DRIVER#" + driverID
+		sk := "LOCATION"
+		fetched, err := dynamo.GetItem(ctx, pk, sk)
+		if err != nil {
+			return false, fmt.Errorf("failed to fetch driver %s record for claim revert: %w", driverID, err)
+		}
+		if len(fetched) == 0 {
+			return false, fmt.Errorf("driver %s record not found for claim revert", driverID)
+		}
+		item = fetched
+	}
+
+	revertItem := make(map[string]types.AttributeValue, len(item)+4)
+	for k, v := range item {
+		revertItem[k] = v
+	}
+	revertItem["Status"] = &types.AttributeValueMemberS{Value: "available"}
+	revertItem["status"] = &types.AttributeValueMemberS{Value: "available"}
+	if _, ok := revertItem["GSI1SK"]; ok {
+		revertItem["GSI1SK"] = &types.AttributeValueMemberS{
+			Value: fmt.Sprintf("DRIVER#available#%s", driverID),
+		}
+	}
+	revertNow := time.Now().UTC().Format(time.RFC3339)
+	revertItem["UpdatedAt"] = &types.AttributeValueMemberS{Value: revertNow}
+	revertItem["updatedAt"] = &types.AttributeValueMemberS{Value: revertNow}
+
+	condition := fmt.Sprintf("#status = :%s", expectedCurrentStatus)
+	return dynamo.ConditionalPutItem(ctx, revertItem, condition)
 }

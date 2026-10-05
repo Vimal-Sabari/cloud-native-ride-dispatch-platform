@@ -28,7 +28,12 @@ export interface DynamoAccessor {
   putItem(item: Record<string, unknown>): Promise<void>;
   deleteItem(pk: string, sk: string): Promise<void>;
   query?(input: QueryInput): Promise<Record<string, unknown>[]>;
-  conditionalPutItem?(item: Record<string, unknown>, conditionExpression: string): Promise<boolean>;
+  conditionalPutItem?(
+    item: Record<string, unknown>,
+    conditionExpression: string,
+    expressionAttributeNames?: Record<string, string>,
+    expressionAttributeValues?: Record<string, unknown>,
+  ): Promise<boolean>;
   updateRide?(
     rideId: string,
     values: UpdateRideValues,
@@ -178,10 +183,22 @@ export class DynamoClient {
     };
     const assignments: string[] = ['#updatedAt = :updatedAt'];
 
+    const removals: string[] = [];
     if (values.state !== undefined) {
       names['#state'] = 'state';
       expressionValues[':state'] = values.state;
       assignments.push('#state = :state');
+
+      if (values.state === 'MATCHED') {
+        names['#gsi4pk'] = 'GSI4PK';
+        names['#gsi4sk'] = 'GSI4SK';
+        expressionValues[':gsi4pk'] = 'STATE#MATCHED';
+        expressionValues[':gsi4sk'] = expressionValues[':updatedAt'];
+        assignments.push('#gsi4pk = :gsi4pk');
+        assignments.push('#gsi4sk = :gsi4sk');
+      } else {
+        removals.push('GSI4PK', 'GSI4SK');
+      }
     }
 
     if (values.driverId !== undefined) {
@@ -231,13 +248,18 @@ export class DynamoClient {
       }
     }
 
+    let updateExpr = `SET ${assignments.join(', ')}`;
+    if (removals.length > 0) {
+      updateExpr += ` REMOVE ${removals.join(', ')}`;
+    }
+
     const command = new UpdateCommand({
       TableName: this.tableName,
       Key: {
         PK: pk,
         SK: sk,
       },
-      UpdateExpression: `SET ${assignments.join(', ')}`,
+      UpdateExpression: updateExpr,
       ...(Object.keys(cleanNames).length > 0 ? { ExpressionAttributeNames: cleanNames } : {}),
       ...(Object.keys(cleanValues).length > 0 ? { ExpressionAttributeValues: cleanValues } : {}),
       ...(condition && condition.trim() !== '' ? { ConditionExpression: condition } : {}),
@@ -251,14 +273,16 @@ export class DynamoClient {
   async conditionalPutItem(
     item: Record<string, unknown>,
     conditionExpression: string,
+    expressionAttributeNames?: Record<string, string>,
+    expressionAttributeValues?: Record<string, unknown>,
   ): Promise<boolean> {
     try {
-      const names: Record<string, string> = {};
-      const values: Record<string, unknown> = {};
+      const names: Record<string, string> = { ...(expressionAttributeNames || {}) };
+      const values: Record<string, unknown> = { ...(expressionAttributeValues || {}) };
       let expr = conditionExpression;
 
       const stateMatch = expr.match(/state\s*=\s*([A-Za-z0-9_]+)/);
-      if (stateMatch) {
+      if (stateMatch && !names['#state']) {
         const val = stateMatch[1];
         names['#state'] = 'state';
         values[':state'] = val;

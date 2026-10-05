@@ -19,6 +19,7 @@ describe('state-machine module', () => {
     expect(ALLOWED_TRANSITIONS[RideState.MATCHED]).toEqual([
       RideState.DRIVER_EN_ROUTE,
       RideState.CANCELLED,
+      RideState.REQUESTED,
     ]);
     expect(ALLOWED_TRANSITIONS[RideState.DRIVER_EN_ROUTE]).toEqual([
       RideState.IN_PROGRESS,
@@ -32,7 +33,11 @@ describe('state-machine module', () => {
   describe('exhaustive transition-table matrix (6x6 = 36 combinations)', () => {
     const expectedAllowed: Record<RideState, Set<RideState>> = {
       [RideState.REQUESTED]: new Set([RideState.MATCHED, RideState.CANCELLED]),
-      [RideState.MATCHED]: new Set([RideState.DRIVER_EN_ROUTE, RideState.CANCELLED]),
+      [RideState.MATCHED]: new Set([
+        RideState.DRIVER_EN_ROUTE,
+        RideState.CANCELLED,
+        RideState.REQUESTED,
+      ]),
       [RideState.DRIVER_EN_ROUTE]: new Set([RideState.IN_PROGRESS, RideState.CANCELLED]),
       [RideState.IN_PROGRESS]: new Set([RideState.COMPLETED]),
       [RideState.COMPLETED]: new Set(),

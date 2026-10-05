@@ -7,3 +7,4 @@ export * from './handlers/get-ride';
 export * from './handlers/cancel-ride';
 export * from './handlers/list-rider-rides';
 export * from './handlers/internal-assign-driver';
+export * from './handlers/reassign-stale-matches';
