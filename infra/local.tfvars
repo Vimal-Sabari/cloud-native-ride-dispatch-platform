@@ -12,6 +12,8 @@ environment      = "local"
 internal_api_key = "dev-internal-api-key-for-matching-service"
 use_localstack   = true
 ops_alert_email  = "ops-alerts@example.com"
+aws_region       = "us-east-1"
+project_name     = "ride-dispatch-platform"
 
 
 

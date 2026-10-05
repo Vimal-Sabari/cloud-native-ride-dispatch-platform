@@ -7,7 +7,7 @@
 
 # Lambda execution IAM role
 resource "aws_iam_role" "lambda_exec" {
-  name = "${var.function_name}-exec-role"
+  name = substr(var.function_name != null ? "${var.function_name}-exec-role" : "default-exec-role", 0, 64)
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
