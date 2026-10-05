@@ -92,6 +92,9 @@ jobs:
         run: |
           npm run build --workspace=@ride-dispatch/models
           npm run build --workspace=@ride-dispatch/dynamo-client
+          npm run build --workspace=@ride-dispatch/auth
+          npm run build --workspace=@ride-dispatch/sns-client
+          npm run build --workspace=@ride-dispatch/logging
 
       - name: Run ESLint
         run: npm run lint
@@ -126,6 +129,7 @@ jobs:
           npm run build --workspace=@ride-dispatch/dynamo-client
           npm run build --workspace=@ride-dispatch/auth
           npm run build --workspace=@ride-dispatch/sns-client
+          npm run build --workspace=@ride-dispatch/logging
 
       - name: Run tests
         run: npm test
@@ -163,6 +167,7 @@ jobs:
           npm run build --workspace=@ride-dispatch/dynamo-client
           npm run build --workspace=@ride-dispatch/auth
           npm run build --workspace=@ride-dispatch/sns-client
+          npm run build --workspace=@ride-dispatch/logging
           npm run build --workspace=@ride-dispatch/notification-service
 
       - name: Start LocalStack

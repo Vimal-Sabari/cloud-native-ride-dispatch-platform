@@ -82,6 +82,9 @@ fi
 if [ ! -f "$ORIGINAL_DIR/shared/sns-client/ts/dist/index.js" ] && [ -d "$ORIGINAL_DIR/shared/sns-client/ts" ]; then
   npm run build --workspace=@ride-dispatch/sns-client --prefix="$ORIGINAL_DIR" >/dev/null 2>&1 || true
 fi
+if [ ! -f "$ORIGINAL_DIR/shared/logging/ts/dist/index.js" ] && [ -d "$ORIGINAL_DIR/shared/logging/ts" ]; then
+  npm run build --workspace=@ride-dispatch/logging --prefix="$ORIGINAL_DIR" >/dev/null 2>&1 || true
+fi
 
 echo "1. Bundling with esbuild (Node 20, platform node)..."
 if npx --yes esbuild "$ENTRY_FILE" \
