@@ -137,6 +137,11 @@ jobs:
   integration-test:
     name: integration-test
     runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REGION: us-east-1
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -178,14 +183,20 @@ jobs:
         run: |
           bash scripts/wait-for-localstack.sh
           sleep 30
-          # Add health check retries
-          for i in {1..10}; do
+          # Extended health check with diagnostics
+          for i in {1..60}; do
             if aws s3 ls --endpoint-url http://localhost:4566 2>/dev/null; then
               echo "LocalStack is healthy"
               break
             fi
-            echo "Waiting for LocalStack health check... attempt $i/10"
-            sleep 3
+            echo "Waiting for LocalStack health check... attempt $i/60"
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "=== Docker PS ==="
+              docker ps | grep localstack || echo "LocalStack container not found"
+              echo "=== LocalStack Logs ==="
+              docker logs ride-dispatch-localstack --tail 50
+            fi
+            sleep 2
           done
 
       - name: Run LocalStack Smoke Test
@@ -209,7 +220,7 @@ jobs:
 
       - name: Verify LocalStack Connectivity
         run: |
-          for i in {1..30}; do
+          for i in {1..60}; do
             if aws s3 ls --endpoint-url=http://localhost:4566 2>/dev/null; then
               echo "LocalStack is ready"
               exit 0
@@ -217,6 +228,7 @@ jobs:
             sleep 2
           done
           echo "LocalStack failed to start"
+          docker logs ride-dispatch-localstack --tail 100
           exit 1
 
       - name: Provision Terraform Infrastructure against LocalStack
