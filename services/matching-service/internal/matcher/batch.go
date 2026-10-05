@@ -10,6 +10,7 @@ import (
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/metrics"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/models"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/geospatial"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/logging/go"
 	matchingalgorithms "github.com/Vimal-Sabari/ride-dispatch-platform/shared/matching-algorithms"
 )
 
@@ -190,15 +191,25 @@ func ProcessBatch(
 	for _, req := range batch {
 		candidates := candidatesMap[req.RideID]
 		if len(candidates) == 0 {
+			elapsed := time.Since(batchStart).Milliseconds()
 			metrics.LogMatchDecision(logWriter, metrics.MatchDecisionLog{
 				Strategy:             "batch",
 				RideID:               req.RideID,
 				CandidatesConsidered: 0,
 				Assigned:             false,
 				ChosenDistanceMeters: 0,
-				DecisionDurationMs:   time.Since(batchStart).Milliseconds(),
+				DecisionDurationMs:   elapsed,
 				BatchSize:            batchSize,
 			})
+			logging.EmitEMFMetric(
+				"RideDispatch/MatchingService",
+				map[string]string{"Strategy": "batch"},
+				map[string]logging.MetricDefinition{
+					"MatchAttempted":          {Value: 1, Unit: "Count"},
+					"MatchFailed":             {Value: 1, Unit: "Count"},
+					"MatchDecisionDurationMs": {Value: float64(elapsed), Unit: "Milliseconds"},
+				},
+			)
 			continue
 		}
 
@@ -214,14 +225,30 @@ func ProcessBatch(
 			chosenDist = result.ChosenDistanceMeters
 		}
 
+		elapsed := time.Since(batchStart).Milliseconds()
 		metrics.LogMatchDecision(logWriter, metrics.MatchDecisionLog{
 			Strategy:             "batch",
 			RideID:               req.RideID,
 			CandidatesConsidered: len(candidates),
 			Assigned:             assigned,
 			ChosenDistanceMeters: chosenDist,
-			DecisionDurationMs:   time.Since(batchStart).Milliseconds(),
+			DecisionDurationMs:   elapsed,
 			BatchSize:            batchSize,
 		})
+
+		emfMetrics := map[string]logging.MetricDefinition{
+			"MatchAttempted":          {Value: 1, Unit: "Count"},
+			"MatchDecisionDurationMs": {Value: float64(elapsed), Unit: "Milliseconds"},
+		}
+		if assigned {
+			emfMetrics["MatchSucceeded"] = logging.MetricDefinition{Value: 1, Unit: "Count"}
+		} else {
+			emfMetrics["MatchFailed"] = logging.MetricDefinition{Value: 1, Unit: "Count"}
+		}
+		logging.EmitEMFMetric(
+			"RideDispatch/MatchingService",
+			map[string]string{"Strategy": "batch"},
+			emfMetrics,
+		)
 	}
 }

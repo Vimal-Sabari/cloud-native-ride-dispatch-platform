@@ -2,13 +2,13 @@ package handler
 
 import (
 	"context"
-	"log"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/geospatial"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/logging/go"
 	models "github.com/Vimal-Sabari/ride-dispatch-platform/shared/models/go"
 )
 
@@ -36,7 +36,12 @@ func HandleUpdateLocation(
 	req models.LocationUpdateRequest,
 	deps DynamoWriter,
 ) (int, map[string]string, error) {
+	log := logging.New("location-service").WithCorrelationID(driverID)
+
 	if driverID == "" {
+		logging.EmitEMFMetric("RideDispatch/LocationService", map[string]string{"Route": "update-location"}, map[string]logging.MetricDefinition{
+			"ErrorCount": {Value: 1, Unit: "Count"},
+		})
 		return 400, map[string]string{"error": "driver id is required"}, nil
 	}
 
@@ -44,13 +49,20 @@ func HandleUpdateLocation(
 	// Encode enforces lat in [-90, 90] and lng in [-180, 180].
 	geohash, err := geospatial.Encode(req.Lat, req.Lng, geospatial.StandardPrecision)
 	if err != nil {
+		log.Error("failed to encode geohash", err, map[string]interface{}{"lat": req.Lat, "lng": req.Lng})
+		logging.EmitEMFMetric("RideDispatch/LocationService", map[string]string{"Route": "update-location"}, map[string]logging.MetricDefinition{
+			"ErrorCount": {Value: 1, Unit: "Count"},
+		})
 		return 400, map[string]string{"error": err.Error()}, nil
 	}
 
 	// Read existing driver record to determine current availability status
 	existing, err := deps.GetItem(ctx, "DRIVER#"+driverID, "LOCATION")
 	if err != nil {
-		log.Printf("HandleUpdateLocation: failed to get driver record for %s: %v", driverID, err)
+		log.Error("failed to get driver record", err, map[string]interface{}{"driverId": driverID})
+		logging.EmitEMFMetric("RideDispatch/LocationService", map[string]string{"Route": "update-location"}, map[string]logging.MetricDefinition{
+			"ErrorCount": {Value: 1, Unit: "Count"},
+		})
 		return 500, map[string]string{"error": "internal error"}, err
 	}
 
@@ -86,9 +98,23 @@ func HandleUpdateLocation(
 	}
 
 	if err := deps.PutItem(ctx, item); err != nil {
-		log.Printf("HandleUpdateLocation: failed to put location item for %s: %v", driverID, err)
+		log.Error("failed to put location item", err, map[string]interface{}{"driverId": driverID, "geohash": geohash, "status": status})
+		logging.EmitEMFMetric("RideDispatch/LocationService", map[string]string{"Route": "update-location"}, map[string]logging.MetricDefinition{
+			"ErrorCount": {Value: 1, Unit: "Count"},
+		})
 		return 500, map[string]string{"error": "internal error"}, err
 	}
+
+	log.Info("driver location updated successfully", map[string]interface{}{
+		"geohash": geohash,
+		"status":  status,
+		"lat":     req.Lat,
+		"lng":     req.Lng,
+	})
+
+	logging.EmitEMFMetric("RideDispatch/LocationService", map[string]string{"Route": "update-location"}, map[string]logging.MetricDefinition{
+		"RequestCount": {Value: 1, Unit: "Count"},
+	})
 
 	return 200, map[string]string{"status": "ok"}, nil
 }

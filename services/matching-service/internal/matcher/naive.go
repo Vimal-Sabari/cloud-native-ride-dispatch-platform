@@ -11,6 +11,7 @@ import (
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/metrics"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/models"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/geospatial"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/logging/go"
 )
 
 // MaxCandidatesReturned defines the maximum number of fallback candidates selected by the naive matcher.
@@ -92,6 +93,15 @@ func ExecuteNaiveMatch(
 			DecisionDurationMs:   elapsed,
 			BatchSize:            0,
 		})
+		logging.EmitEMFMetric(
+			"RideDispatch/MatchingService",
+			map[string]string{"Strategy": "naive"},
+			map[string]logging.MetricDefinition{
+				"MatchAttempted":          {Value: 1, Unit: "Count"},
+				"MatchFailed":             {Value: 1, Unit: "Count"},
+				"MatchDecisionDurationMs": {Value: float64(elapsed), Unit: "Milliseconds"},
+			},
+		)
 		return &models.AssignmentResult{Assigned: false}, nil
 	}
 
@@ -117,6 +127,21 @@ func ExecuteNaiveMatch(
 		DecisionDurationMs:   elapsed,
 		BatchSize:            0,
 	})
+
+	emfMetrics := map[string]logging.MetricDefinition{
+		"MatchAttempted":          {Value: 1, Unit: "Count"},
+		"MatchDecisionDurationMs": {Value: float64(elapsed), Unit: "Milliseconds"},
+	}
+	if assigned {
+		emfMetrics["MatchSucceeded"] = logging.MetricDefinition{Value: 1, Unit: "Count"}
+	} else {
+		emfMetrics["MatchFailed"] = logging.MetricDefinition{Value: 1, Unit: "Count"}
+	}
+	logging.EmitEMFMetric(
+		"RideDispatch/MatchingService",
+		map[string]string{"Strategy": "naive"},
+		emfMetrics,
+	)
 
 	return result, nil
 }

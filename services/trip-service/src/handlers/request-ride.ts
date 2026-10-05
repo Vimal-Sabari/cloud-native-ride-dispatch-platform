@@ -11,6 +11,7 @@
 
 import * as crypto from 'crypto';
 import { RequestRideBody, RideState } from '@ride-dispatch/models';
+import { createLogger, emitEMFMetric } from '@ride-dispatch/logging';
 import { DynamoAccessor } from '../dynamo-accessor';
 
 function isValidCoordinates(coords: unknown): coords is { lat: number; lng: number } {
@@ -26,7 +27,17 @@ export async function requestRide(
   body: RequestRideBody,
   deps: DynamoAccessor,
 ): Promise<{ statusCode: number; body: unknown }> {
+  const baseLogger = createLogger('trip-service');
+  // Before rideId is generated, scope logger with riderId (or 'anonymous' if missing)
+  let logger = baseLogger.withCorrelationId(riderId || 'anonymous');
+
   if (!riderId || typeof riderId !== 'string' || riderId.trim() === '') {
+    logger.warn('request ride failed: invalid or missing riderId');
+    emitEMFMetric(
+      'RideDispatch/TripService',
+      { Route: 'request-ride' },
+      { ErrorCount: { value: 1, unit: 'Count' } },
+    );
     return {
       statusCode: 400,
       body: { error: 'Invalid or missing riderId' },
@@ -34,6 +45,12 @@ export async function requestRide(
   }
 
   if (!isValidCoordinates(body?.pickup)) {
+    logger.warn('request ride failed: invalid pickup coordinates');
+    emitEMFMetric(
+      'RideDispatch/TripService',
+      { Route: 'request-ride' },
+      { ErrorCount: { value: 1, unit: 'Count' } },
+    );
     return {
       statusCode: 400,
       body: {
@@ -43,6 +60,12 @@ export async function requestRide(
   }
 
   if (!isValidCoordinates(body?.dropoff)) {
+    logger.warn('request ride failed: invalid dropoff coordinates');
+    emitEMFMetric(
+      'RideDispatch/TripService',
+      { Route: 'request-ride' },
+      { ErrorCount: { value: 1, unit: 'Count' } },
+    );
     return {
       statusCode: 400,
       body: {
@@ -61,6 +84,14 @@ export async function requestRide(
     if (existingPointer && typeof existingPointer.rideId === 'string') {
       const existingRide = await deps.getItem(`RIDE#${existingPointer.rideId}`, 'DETAILS');
       if (existingRide) {
+        logger.info('idempotent replay: returning existing ride', {
+          existingRideId: existingPointer.rideId,
+        });
+        emitEMFMetric(
+          'RideDispatch/TripService',
+          { Route: 'request-ride' },
+          { RequestCount: { value: 1, unit: 'Count' } },
+        );
         return {
           statusCode: 200,
           body: existingRide,
@@ -71,6 +102,8 @@ export async function requestRide(
 
   // 2. Generate new ride item
   const rideId = crypto.randomUUID();
+  // Now scope logger with the generated rideId for all subsequent operations
+  logger = baseLogger.withCorrelationId(rideId);
   const now = new Date().toISOString();
 
   const rideItem: Record<string, unknown> = {
@@ -112,6 +145,14 @@ export async function requestRide(
       if (winningPointer && typeof winningPointer.rideId === 'string') {
         const winningRide = await deps.getItem(`RIDE#${winningPointer.rideId}`, 'DETAILS');
         if (winningRide) {
+          logger.info('idempotency race lost; returning winning ride', {
+            winningRideId: winningPointer.rideId,
+          });
+          emitEMFMetric(
+            'RideDispatch/TripService',
+            { Route: 'request-ride' },
+            { RequestCount: { value: 1, unit: 'Count' } },
+          );
           return {
             statusCode: 200,
             body: winningRide,
@@ -120,6 +161,19 @@ export async function requestRide(
       }
     }
   }
+
+  logger.info('ride requested successfully', {
+    rideId,
+    riderId,
+    pickup: body.pickup,
+    dropoff: body.dropoff,
+  });
+
+  emitEMFMetric(
+    'RideDispatch/TripService',
+    { Route: 'request-ride' },
+    { RequestCount: { value: 1, unit: 'Count' } },
+  );
 
   return {
     statusCode: 201,

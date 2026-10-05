@@ -220,3 +220,25 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
   - Logging must never compromise or crash the core dispatch pipeline. `LogMatchDecision` handles serialization defensively, emitting plain-text fallback notices on error and ensuring matching decisions always complete regardless of log sink state.
 - **Forward-Compatibility with CloudWatch Metrics (Modules 25 & 26):**
   - This decision serves as the foundational data contract for subsequent production telemetry. In Modules 25 and 26, CloudWatch Logs subscription filters, CloudWatch Metric Filters, or AWS Embedded Metric Format (EMF) can seamlessly aggregate these exact fields (`chosenDistanceMeters`, `decisionDurationMs`, `batchSize`) into dimensional CloudWatch metrics without requiring structural redesign of the Matching Service decision pipeline.
+
+## ADR: zerolog (Go) and pino (TypeScript) for Structured Logging
+
+**Decision:** Adopt `zerolog` for Go services (Location Service, Matching Service, DynamoDB Streams event forwarder) and `pino` for TypeScript services (Trip Service, Notification Service, auth stub), wrapped in shared packages (`shared/logging/go` and `shared/logging/ts`) exposing consistent APIs with correlation-ID scoping.
+
+**Why:**
+
+- **Lightweight & High Performance:** Both `zerolog` and `pino` are purpose-built for zero or minimal memory allocations, fast JSON serialization, and sub-millisecond execution times. They avoid heavy reflection, locks, and complex object allocation on the critical request path.
+- **JSON-Native Output:** Both libraries natively produce newline-delimited JSON logs written directly to standard output (`os.Stdout` / `process.stdout`), seamlessly aligning with AWS CloudWatch Logs, Lambda log drivers, and container log aggregators without extra parsing or formatting filters.
+- **Ecosystem Standard & Ergonomics:** `zerolog` is standard in modern Go cloud services, while `pino` is the benchmark for Node.js/TypeScript logging. Both support native contextual child loggers (`WithCorrelationID` in Go, `.child({ correlationId })` in TypeScript), enabling request-scoped tracing across handlers.
+- **Shared Abstraction Layer:** By placing thin wrappers in `shared/logging/go` and `shared/logging/ts`, application handlers depend on uniform logging interfaces (`Info`, `Warn`, `Error`, `WithCorrelationID`/`withCorrelationId`), decoupling business logic from underlying logging library internals while keeping signatures idiomatic in both languages.
+
+## ADR: CloudWatch EMF for Custom Metrics, No Separate Metrics Backend
+
+**Decision:** Use the AWS CloudWatch Embedded Metric Format (EMF) specification to emit custom operational and business metrics directly through structured stdout log lines, rather than introducing a separate metrics backend (such as a StatsD daemon, Prometheus gateway, or calling the CloudWatch `PutMetricData` API directly).
+
+**Why:**
+
+- **Zero Additional API Calls or Network Overhead:** Emitting EMF metrics involves serializing a standardized JSON payload to standard output. CloudWatch Logs automatically ingests these log entries and extracts custom CloudWatch metrics asynchronously without the Lambda function or daemon making HTTP/HTTPS API calls to CloudWatch (`PutMetricData`). This completely eliminates network latency and avoids API rate limits or throttling on the critical request path.
+- **Zero Additional Infrastructure & Free-Tier Efficiency:** A dedicated metrics backend (e.g., Prometheus, InfluxDB, Datadog agent) incurs hosting and maintenance overhead. EMF leverages existing CloudWatch Logs log groups, meaning metrics generation introduces zero new infrastructure and incurs no incremental cost beyond existing log ingestion at the project's free-tier-conscious scale.
+- **Dual Metadata-Block-Plus-Flat-Fields Structure:** The shared libraries (`shared/logging/go` and `shared/logging/ts`) enforce the exact CloudWatch EMF dual structure: a top-level `_aws` directive containing `Timestamp`, `CloudWatchMetrics` array (with `Namespace`, `Dimensions` as `string[][]`, and `Metrics` as `[{Name, Unit}]`), coupled with flat sibling fields for all dimension key/values and metric name/values in the identical root JSON object.
+- **Coexistence with Plain JSON Logs:** EMF custom metrics (`MatchAttempted`, `MatchSucceeded`, `MatchFailed`, `MatchDecisionDurationMs`) peacefully coexist alongside plain JSON diagnostic logs and Module 24's `match_decision` telemetry, allowing both native CloudWatch alarms/dashboards and offline script-based analysis.

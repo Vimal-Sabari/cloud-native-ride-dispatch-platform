@@ -25,6 +25,7 @@ import (
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/models"
 	dynamoclient "github.com/Vimal-Sabari/ride-dispatch-platform/shared/dynamo-client/go"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/geospatial"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/logging/go"
 )
 
 // SQSMessageWrapper represents the outer event envelope forwarded by DynamoDB Streams forwarder.
@@ -282,6 +283,15 @@ func processLocationMessage(
 		return
 	}
 
+	locLogger := logging.New("matching-service").WithCorrelationID(payload.DriverID)
+	locLogger.Info("upserting driver location into geoindex", map[string]interface{}{
+		"driverId": payload.DriverID,
+		"geohash":  payload.Geohash,
+		"status":   payload.Status,
+		"lat":      payload.Lat,
+		"lng":      payload.Lng,
+	})
+
 	geoIndex.UpsertDriver(payload.DriverID, payload.Geohash, payload.Status, payload.Lat, payload.Lng)
 
 	deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)
@@ -365,6 +375,12 @@ func processRideRequestMessage(
 			return
 		}
 
+		reqLogger := logging.New("matching-service").WithCorrelationID(payload.RideID)
+		reqLogger.Info("processing ride-requested event", map[string]interface{}{
+			"rideId":  payload.RideID,
+			"riderId": payload.RiderID,
+		})
+
 		rideReq := models.RideRequest{
 			RideID:  payload.RideID,
 			RiderID: payload.RiderID,
@@ -381,6 +397,9 @@ func processRideRequestMessage(
 			// In batch mode, the Window itself — rather than SQS visibility timeout — holds the request
 			// during the aggregation period. This prevents visibility timeout expiration and duplicate
 			// redelivery while waiting for the batch window or size threshold to be reached.
+			reqLogger.Info("enqueuing ride into batch window", map[string]interface{}{
+				"rideId": payload.RideID,
+			})
 			window.Add(rideReq)
 			deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)
 			return
@@ -389,14 +408,21 @@ func processRideRequestMessage(
 		// Naive Strategy Path (per-message immediate matching with structured metric logging):
 		result, err := matcher.ExecuteNaiveMatch(ctx, rideReq, geoIndex, strategy, assigner, os.Stdout)
 		if err != nil {
-			log.Printf("Worker [ride-request-events]: match/assign error for ride %s: %v (leaving for redrive)", rideReq.RideID, err)
+			reqLogger.Error("match/assign error", err, map[string]interface{}{
+				"rideId": rideReq.RideID,
+			})
 			return
 		}
 
 		if result.Assigned {
-			log.Printf("Worker [ride-request-events]: assigned driver %s to ride %s", result.DriverID, rideReq.RideID)
+			reqLogger.Info("assigned driver to ride", map[string]interface{}{
+				"driverId": result.DriverID,
+				"rideId":   rideReq.RideID,
+			})
 		} else {
-			log.Printf("Worker [ride-request-events]: ride %s remained unassigned", rideReq.RideID)
+			reqLogger.Info("ride remained unassigned", map[string]interface{}{
+				"rideId": rideReq.RideID,
+			})
 		}
 
 		deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)
@@ -404,7 +430,10 @@ func processRideRequestMessage(
 	case "ride-cancelled":
 		var payload RideCancelledPayload
 		_ = json.Unmarshal(wrapper.Payload, &payload)
-		log.Printf("Worker [ride-request-events]: received ride-cancelled event for ride %s; Trip Service state machine enforces cancellation status", payload.RideID)
+		cancelLogger := logging.New("matching-service").WithCorrelationID(payload.RideID)
+		cancelLogger.Info("received ride-cancelled event; Trip Service state machine enforces cancellation status", map[string]interface{}{
+			"rideId": payload.RideID,
+		})
 		deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)
 
 	default:

@@ -3,12 +3,12 @@ package assignment
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/models"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/logging/go"
 )
 
 // DynamoWriter defines the data access contract required by Assigner for optimistic driver lock acquisition.
@@ -49,6 +49,8 @@ func NewAssigner(dynamo DynamoWriter, tripService TripServiceClient) *Assigner {
 // an error is logged with full details for asynchronous reconciliation (Module 27).
 // In either case, the original Trip Service error is returned so the caller can retry the match.
 func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candidates []models.MatchCandidate) (*models.AssignmentResult, error) {
+	logger := logging.New("matching-service").WithCorrelationID(request.RideID)
+
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -60,11 +62,16 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 		// 1. Fetch current driver record
 		item, err := a.Dynamo.GetItem(ctx, pk, sk)
 		if err != nil {
-			log.Printf("Assigner: failed to fetch driver %s record: %v; skipping to next candidate", candidate.DriverID, err)
+			logger.Warn("Assigner: failed to fetch driver record; skipping candidate", map[string]interface{}{
+				"driverId": candidate.DriverID,
+				"error":    err.Error(),
+			})
 			continue
 		}
 		if len(item) == 0 {
-			log.Printf("Assigner: driver %s record not found; skipping to next candidate", candidate.DriverID)
+			logger.Warn("Assigner: driver record not found; skipping candidate", map[string]interface{}{
+				"driverId": candidate.DriverID,
+			})
 			continue
 		}
 
@@ -87,21 +94,34 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 		// 3. Attempt optimistic claim
 		claimed, err := a.Dynamo.ConditionalPutItem(ctx, claimItem, "#status = :available")
 		if err != nil {
-			log.Printf("Assigner: error executing conditional claim for driver %s: %v; skipping", candidate.DriverID, err)
+			logger.Warn("Assigner: error executing conditional claim; skipping candidate", map[string]interface{}{
+				"driverId": candidate.DriverID,
+				"error":    err.Error(),
+			})
 			continue
 		}
 
 		if !claimed {
 			// Driver was concurrently claimed or status changed
-			log.Printf("Assigner: driver %s claim lost race (conditional check failed); attempting next candidate", candidate.DriverID)
+			logger.Info("Assigner: driver claim lost race (conditional check failed); attempting next candidate", map[string]interface{}{
+				"driverId": candidate.DriverID,
+			})
 			continue
 		}
 
-		log.Printf("Assigner: successfully claimed driver %s; notifying Trip Service for ride %s", candidate.DriverID, request.RideID)
+		logger.Info("Assigner: successfully claimed driver; notifying Trip Service", map[string]interface{}{
+			"driverId": candidate.DriverID,
+			"rideId":   request.RideID,
+		})
 
 		// 4. Confirm match with Trip Service
 		tripErr := a.TripService.AssignDriver(ctx, request.RideID, candidate.DriverID)
 		if tripErr == nil {
+			logger.Info("Assigner: driver assignment confirmed by Trip Service", map[string]interface{}{
+				"driverId":       candidate.DriverID,
+				"rideId":         request.RideID,
+				"distanceMeters": candidate.DistanceMeters,
+			})
 			return &models.AssignmentResult{
 				Assigned:             true,
 				DriverID:             candidate.DriverID,
@@ -110,7 +130,11 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 		}
 
 		// 5. Confirmation failed: execute compensating transaction to revert claim
-		log.Printf("Assigner: TripService confirmation failed for ride %s with driver %s: %v; attempting compensation revert", request.RideID, candidate.DriverID, tripErr)
+		logger.Warn("Assigner: TripService confirmation failed; attempting compensation revert", map[string]interface{}{
+			"driverId": candidate.DriverID,
+			"rideId":   request.RideID,
+			"error":    tripErr.Error(),
+		})
 
 		revertItem := make(map[string]types.AttributeValue, len(claimItem))
 		for k, v := range claimItem {
@@ -129,15 +153,26 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 
 		reverted, revertErr := a.Dynamo.ConditionalPutItem(ctx, revertItem, "#status = :busy")
 		if revertErr != nil || !reverted {
-			log.Printf("ERROR: Assigner: failed to revert driver %s claim after TripService confirmation failure (reverted=%t, err=%v). Driver remains in 'busy' state and requires asynchronous reconciliation.", candidate.DriverID, reverted, revertErr)
+			logger.Error("Assigner: failed to revert driver claim after TripService confirmation failure. Driver remains in busy state and requires reconciliation", revertErr, map[string]interface{}{
+				"driverId": candidate.DriverID,
+				"rideId":   request.RideID,
+				"reverted": reverted,
+			})
 		} else {
-			log.Printf("Assigner: successfully reverted driver %s back to available after TripService error", candidate.DriverID)
+			logger.Info("Assigner: successfully reverted driver back to available after TripService error", map[string]interface{}{
+				"driverId": candidate.DriverID,
+				"rideId":   request.RideID,
+			})
 		}
 
 		return nil, fmt.Errorf("assign driver %s to ride %s failed in TripService: %w", candidate.DriverID, request.RideID, tripErr)
 	}
 
 	// All candidate claims failed (e.g. concurrent race conditions or no valid candidates)
+	logger.Info("Assigner: all candidate claims failed; ride remained unassigned", map[string]interface{}{
+		"rideId":          request.RideID,
+		"candidatesCount": len(candidates),
+	})
 	return &models.AssignmentResult{
 		Assigned: false,
 		DriverID: "",

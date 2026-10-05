@@ -7,6 +7,7 @@ use (
 	./services/matching-service
 	./shared/dynamo-client/go
 	./shared/geospatial
+	./shared/logging/go
 	./shared/matching-algorithms
 	./shared/models/go
 )

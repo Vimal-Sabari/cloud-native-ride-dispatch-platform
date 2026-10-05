@@ -194,3 +194,55 @@ The **Matching Service** (`services/matching-service/`) is a continuous daemon w
    - For `ride-cancelled` events:
      - Acknowledges event; Trip Service state machine prevents cancelled rides from being assigned.
    - Deletes successfully processed messages.
+
+---
+
+## Observability
+
+The platform implements consistent, structured, correlation-ID-carrying logging and CloudWatch Embedded Metric Format (EMF) custom metric emission across all microservices.
+
+### Logging Architecture & Packages
+
+- **Go Services (`shared/logging/go`):** Powered by `github.com/rs/zerolog`. Emits newline-delimited JSON to `os.Stdout` with a base `service` field. Supports `WithCorrelationID(id string)` to derive child loggers bound with `correlationId`. Provides `EmitEMFMetric(...)` to output standard CloudWatch EMF payloads.
+- **TypeScript Services (`shared/logging/ts`):** Powered by `pino`. Emits newline-delimited JSON to `process.stdout` with a base `service` field. Supports `withCorrelationId(id: string)` via pino child loggers bound with `correlationId`. Provides `emitEMFMetric(...)` adhering to the exact EMF format.
+
+### Correlation ID Field Conventions
+
+All log lines consistently use the camelCase field name `"correlationId"`. The value bound to `correlationId` depends on the microservice domain context:
+
+| Service / Ingestion Path | Context / Handler | Correlation ID Source |
+|---|---|---|
+| **Location Service** | `HandleUpdateLocation`, `HandleUpdateStatus` | `driverId` |
+| **Trip Service** | `requestRide`, `getRide`, `cancelRide`, `internalAssignDriver` | `rideId` (with fallback to `riderId` or request ID prior to ride generation) |
+| **Matching Service** | `location-events` worker path (`processLocationMessage`) | `driverId` |
+| **Matching Service** | `ride-request-events` worker path (`processRideRequestMessage`, `Assigner.Assign`) | `rideId` |
+| **Auth Stub** | Token issuance & Lambda authorizer | Generated request ID (`requestId` from API Gateway context or UUID) |
+| **Notification Service** | WebSocket `$connect`, `$disconnect`, connection management | Generated request ID or connection-scoped identifier |
+
+### CloudWatch EMF Custom Metrics
+
+EMF records are emitted directly to stdout as valid CloudWatch EMF JSON objects. CloudWatch Logs automatically extracts these into custom CloudWatch metrics with zero additional network requests or infrastructure overhead.
+
+#### Metric Inventory
+
+| Namespace | Dimensions | Metric Name | Unit | Description |
+|---|---|---|---|---|
+| `RideDispatch/LocationService` | `[Route]` | `RequestCount` | `Count` | Total successful driver location updates |
+| `RideDispatch/LocationService` | `[Route]` | `ErrorCount` | `Count` | Total failed driver location updates |
+| `RideDispatch/TripService` | `[Route]` | `RequestCount` | `Count` | Total successful ride requests |
+| `RideDispatch/TripService` | `[Route]` | `ErrorCount` | `Count` | Total failed ride requests |
+| `RideDispatch/MatchingService` | `[Strategy]` | `MatchAttempted` | `Count` | Total dispatch matching attempts initiated (emitted per request) |
+| `RideDispatch/MatchingService` | `[Strategy]` | `MatchSucceeded` | `Count` | Total ride match attempts resulting in driver assignment |
+| `RideDispatch/MatchingService` | `[Strategy]` | `MatchFailed` | `Count` | Total ride match attempts where no driver was assigned |
+| `RideDispatch/MatchingService` | `[Strategy]` | `MatchDecisionDurationMs` | `Milliseconds` | Execution latency of the matching heuristic and assignment pipeline |
+
+### Migration Scope and Verification Note
+
+> [!NOTE]
+> **Representative Handler Verification:**
+> Module 25 deliberately focused deep verification and automated test coverage on three representative handlers across the platform:
+> 1. **Location Service:** Location update handler (`services/location-service/internal/handler/location.go`)
+> 2. **Trip Service:** Request ride handler (`services/trip-service/src/handlers/request-ride.ts`)
+> 3. **Matching Service:** Assignment flow and dispatch loops (`services/matching-service/internal/assignment/assignment.go`, `internal/matcher/naive.go`, `internal/matcher/batch.go`, and `cmd/matching-service/main.go`)
+> 
+> All existing behavioral test suites for these three handlers were executed and confirmed to pass with zero regressions. Applying the identical structured logging and EMF emission pattern to the remaining platform handlers (e.g., driver status updates, ride cancellations, WebSocket connection managers, event forwarder) is a documented, mechanical, lower-risk follow-up rather than claimed to be exhaustively executed in this single module.
