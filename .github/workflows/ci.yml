@@ -177,7 +177,16 @@ jobs:
       - name: Wait for LocalStack
         run: |
           bash scripts/wait-for-localstack.sh
-          sleep 15
+          sleep 30
+          # Add health check retries
+          for i in {1..10}; do
+            if aws s3 ls --endpoint-url http://localhost:4566 2>/dev/null; then
+              echo "LocalStack is healthy"
+              break
+            fi
+            echo "Waiting for LocalStack health check... attempt $i/10"
+            sleep 3
+          done
 
       - name: Run LocalStack Smoke Test
         run: bash scripts/smoke-test-localstack.sh
@@ -214,22 +223,26 @@ jobs:
           export TF_LOG=DEBUG
           export TF_LOG_PATH=/tmp/terraform.log
 
-          # Retry logic
+          # Retry logic with better diagnostics and parallelism limit to reduce load on LocalStack
           for i in {1..3}; do
             echo "Terraform apply attempt $i/3..."
-            if terraform plan -input=false -var-file=local.tfvars -out=tfplan && \
-               terraform apply -input=false tfplan; then
+            if terraform plan -input=false -var-file=local.tfvars -parallelism=2 -out=tfplan 2>&1 | tee plan.log && \
+               terraform apply -input=false -parallelism=2 tfplan 2>&1 | tee apply.log; then
               echo "Terraform apply succeeded"
               break
             elif [ $i -eq 3 ]; then
+              echo "=== TERRAFORM PLAN ERRORS ==="
+              grep -i "error\|warning" plan.log || cat plan.log | tail -n 100
+              echo "=== TERRAFORM APPLY ERRORS ==="
+              grep -i "error\|warning" apply.log || cat apply.log | tail -n 100
               echo "=== TERRAFORM DEBUG LOGS ==="
               cat /tmp/terraform.log | tail -n 250
               echo "=== LOCALSTACK CONTAINER LOGS ==="
               docker logs ride-dispatch-localstack --tail 200
               exit 1
             else
-              echo "Attempt $i failed, retrying..."
-              sleep 5
+              echo "Attempt $i failed, retrying after longer delay..."
+              sleep 10
             fi
           done
 
