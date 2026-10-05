@@ -2,8 +2,12 @@ package matcher
 
 import (
 	"context"
+	"io"
+	"os"
+	"time"
 
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/geoindex"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/metrics"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/models"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/geospatial"
 	matchingalgorithms "github.com/Vimal-Sabari/ride-dispatch-platform/shared/matching-algorithms"
@@ -153,7 +157,7 @@ type AssignerInterface interface {
 
 // ProcessBatch coordinates matching and assignment for a batch of requests.
 // It first attempts global batch matching via batchMatcher. If batchMatcher returns an error
-// (or times out), it logs a warning and gracefully degrades by calling naiveMatcher for each
+// (or times out), it logs a warning and gracefully degrades by calling ExecuteNaiveMatch for each
 // individual request in the batch, guaranteeing no request is silently dropped.
 func ProcessBatch(
 	ctx context.Context,
@@ -162,23 +166,23 @@ func ProcessBatch(
 	batchMatcher BatchMatchStrategy,
 	naiveMatcher MatchStrategy,
 	assigner AssignerInterface,
+	logWriter io.Writer,
 ) {
 	if len(batch) == 0 {
 		return
 	}
+	if logWriter == nil {
+		logWriter = os.Stdout
+	}
+
+	batchStart := time.Now()
+	batchSize := len(batch)
 
 	candidatesMap, err := batchMatcher.FindMatches(ctx, batch, index)
 	if err != nil {
 		// Graceful degradation: fall back to per-request naive matching
 		for _, req := range batch {
-			candidates, naiveErr := naiveMatcher.FindMatch(ctx, req, index)
-			if naiveErr != nil {
-				continue
-			}
-			if len(candidates) == 0 {
-				continue
-			}
-			_, _ = assigner.Assign(ctx, req, candidates)
+			_, _ = ExecuteNaiveMatch(ctx, req, index, naiveMatcher, assigner, logWriter)
 		}
 		return
 	}
@@ -186,8 +190,38 @@ func ProcessBatch(
 	for _, req := range batch {
 		candidates := candidatesMap[req.RideID]
 		if len(candidates) == 0 {
+			metrics.LogMatchDecision(logWriter, metrics.MatchDecisionLog{
+				Strategy:             "batch",
+				RideID:               req.RideID,
+				CandidatesConsidered: 0,
+				Assigned:             false,
+				ChosenDistanceMeters: 0,
+				DecisionDurationMs:   time.Since(batchStart).Milliseconds(),
+				BatchSize:            batchSize,
+			})
 			continue
 		}
-		_, _ = assigner.Assign(ctx, req, candidates)
+
+		result, assignErr := assigner.Assign(ctx, req, candidates)
+		if assignErr != nil {
+			continue
+		}
+
+		assigned := false
+		chosenDist := 0.0
+		if result != nil && result.Assigned {
+			assigned = true
+			chosenDist = result.ChosenDistanceMeters
+		}
+
+		metrics.LogMatchDecision(logWriter, metrics.MatchDecisionLog{
+			Strategy:             "batch",
+			RideID:               req.RideID,
+			CandidatesConsidered: len(candidates),
+			Assigned:             assigned,
+			ChosenDistanceMeters: chosenDist,
+			DecisionDurationMs:   time.Since(batchStart).Milliseconds(),
+			BatchSize:            batchSize,
+		})
 	}
 }

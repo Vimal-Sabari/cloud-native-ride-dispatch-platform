@@ -1,0 +1,12 @@
+{"strategy":"naive","rideId":"ride-n1","candidatesConsidered":3,"assigned":true,"chosenDistanceMeters":400.0,"decisionDurationMs":10,"batchSize":0,"timestamp":"2026-10-05T10:00:00Z","logType":"match_decision"}
+{"strategy":"naive","rideId":"ride-n2","candidatesConsidered":2,"assigned":true,"chosenDistanceMeters":600.0,"decisionDurationMs":20,"batchSize":0,"timestamp":"2026-10-05T10:00:01Z","logType":"match_decision"}
+{"strategy":"naive","rideId":"ride-n3","candidatesConsidered":0,"assigned":false,"chosenDistanceMeters":0.0,"decisionDurationMs":5,"batchSize":0,"timestamp":"2026-10-05T10:00:02Z","logType":"match_decision"}
+{"strategy":"naive","rideId":"ride-n4","candidatesConsidered":1,"assigned":false,"chosenDistanceMeters":0.0,"decisionDurationMs":15,"batchSize":0,"timestamp":"2026-10-05T10:00:03Z","logType":"match_decision"}
+2026-10-05T10:00:04Z INFO Matching Service daemon started successfully.
+{"logType":"other_event","message":"some random json event"}
+{broken json line that should be skipped safely
+{"strategy":"batch","rideId":"ride-b1","candidatesConsidered":3,"assigned":true,"chosenDistanceMeters":300.0,"decisionDurationMs":25,"batchSize":3,"timestamp":"2026-10-05T10:00:05Z","logType":"match_decision"}
+{"strategy":"batch","rideId":"ride-b2","candidatesConsidered":3,"assigned":true,"chosenDistanceMeters":500.0,"decisionDurationMs":25,"batchSize":3,"timestamp":"2026-10-05T10:00:05Z","logType":"match_decision"}
+{"strategy":"batch","rideId":"ride-b3","candidatesConsidered":3,"assigned":true,"chosenDistanceMeters":250.0,"decisionDurationMs":30,"batchSize":3,"timestamp":"2026-10-05T10:00:05Z","logType":"match_decision"}
+{"strategy":"batch","rideId":"ride-b4","candidatesConsidered":0,"assigned":false,"chosenDistanceMeters":0.0,"decisionDurationMs":20,"batchSize":2,"timestamp":"2026-10-05T10:00:06Z","logType":"match_decision"}
+{"strategy":"batch","rideId":"ride-b5","candidatesConsidered":2,"assigned":true,"chosenDistanceMeters":450.0,"decisionDurationMs":40,"batchSize":2,"timestamp":"2026-10-05T10:00:06Z","logType":"match_decision"}

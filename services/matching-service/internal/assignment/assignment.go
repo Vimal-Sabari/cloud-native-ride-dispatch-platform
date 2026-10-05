@@ -103,8 +103,9 @@ func (a *Assigner) Assign(ctx context.Context, request models.RideRequest, candi
 		tripErr := a.TripService.AssignDriver(ctx, request.RideID, candidate.DriverID)
 		if tripErr == nil {
 			return &models.AssignmentResult{
-				Assigned: true,
-				DriverID: candidate.DriverID,
+				Assigned:             true,
+				DriverID:             candidate.DriverID,
+				ChosenDistanceMeters: candidate.DistanceMeters,
 			}, nil
 		}
 

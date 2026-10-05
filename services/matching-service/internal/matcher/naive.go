@@ -2,9 +2,13 @@ package matcher
 
 import (
 	"context"
+	"io"
+	"os"
 	"sort"
+	"time"
 
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/geoindex"
+	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/metrics"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/services/matching-service/internal/models"
 	"github.com/Vimal-Sabari/ride-dispatch-platform/shared/geospatial"
 )
@@ -55,4 +59,64 @@ func (m NaiveNearestMatcher) FindMatch(ctx context.Context, request models.RideR
 	}
 
 	return candidates, nil
+}
+
+// ExecuteNaiveMatch coordinates finding match candidates using strategy, attempting assignment
+// via assigner, and emitting a structured MatchDecisionLog to logWriter (defaults to os.Stdout if nil).
+func ExecuteNaiveMatch(
+	ctx context.Context,
+	request models.RideRequest,
+	index *geoindex.GeoIndex,
+	strategy MatchStrategy,
+	assigner AssignerInterface,
+	logWriter io.Writer,
+) (*models.AssignmentResult, error) {
+	if logWriter == nil {
+		logWriter = os.Stdout
+	}
+	startTime := time.Now()
+
+	candidates, err := strategy.FindMatch(ctx, request, index)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(candidates) == 0 {
+		elapsed := time.Since(startTime).Milliseconds()
+		metrics.LogMatchDecision(logWriter, metrics.MatchDecisionLog{
+			Strategy:             "naive",
+			RideID:               request.RideID,
+			CandidatesConsidered: 0,
+			Assigned:             false,
+			ChosenDistanceMeters: 0,
+			DecisionDurationMs:   elapsed,
+			BatchSize:            0,
+		})
+		return &models.AssignmentResult{Assigned: false}, nil
+	}
+
+	result, err := assigner.Assign(ctx, request, candidates)
+	if err != nil {
+		return nil, err
+	}
+
+	elapsed := time.Since(startTime).Milliseconds()
+	assigned := false
+	chosenDist := 0.0
+	if result != nil && result.Assigned {
+		assigned = true
+		chosenDist = result.ChosenDistanceMeters
+	}
+
+	metrics.LogMatchDecision(logWriter, metrics.MatchDecisionLog{
+		Strategy:             "naive",
+		RideID:               request.RideID,
+		CandidatesConsidered: len(candidates),
+		Assigned:             assigned,
+		ChosenDistanceMeters: chosenDist,
+		DecisionDurationMs:   elapsed,
+		BatchSize:            0,
+	})
+
+	return result, nil
 }

@@ -19,9 +19,10 @@ type MatchCandidate struct {
 }
 
 // AssignmentResult represents the outcome of an assignment attempt.
-// If Assigned is false, DriverID is empty, denoting that no candidate could be
-// successfully claimed.
+// If Assigned is false, DriverID is empty and ChosenDistanceMeters is 0,
+// denoting that no candidate could be successfully claimed.
 type AssignmentResult struct {
-	Assigned bool
-	DriverID string
+	Assigned             bool
+	DriverID             string
+	ChosenDistanceMeters float64
 }

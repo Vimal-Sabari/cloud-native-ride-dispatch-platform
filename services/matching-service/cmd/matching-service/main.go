@@ -155,7 +155,7 @@ func main() {
 			func(batch []models.RideRequest) {
 				flushCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 				defer cancel()
-				matcher.ProcessBatch(flushCtx, batch, geoIndex, batchMatcher, matchStrategy, assigner)
+				matcher.ProcessBatch(flushCtx, batch, geoIndex, batchMatcher, matchStrategy, assigner, os.Stdout)
 			},
 		)
 		defer batchWindow.Stop()
@@ -386,29 +386,17 @@ func processRideRequestMessage(
 			return
 		}
 
-		// Naive Strategy Path (per-message immediate matching):
-		candidates, err := strategy.FindMatch(ctx, rideReq, geoIndex)
+		// Naive Strategy Path (per-message immediate matching with structured metric logging):
+		result, err := matcher.ExecuteNaiveMatch(ctx, rideReq, geoIndex, strategy, assigner, os.Stdout)
 		if err != nil {
-			log.Printf("Worker [ride-request-events]: FindMatch error for ride %s: %v (leaving for redrive)", rideReq.RideID, err)
-			return
-		}
-
-		if len(candidates) == 0 {
-			log.Printf("Worker [ride-request-events]: no available drivers nearby for ride %s; removing event from queue", rideReq.RideID)
-			deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)
-			return
-		}
-
-		result, err := assigner.Assign(ctx, rideReq, candidates)
-		if err != nil {
-			log.Printf("Worker [ride-request-events]: assignment failed for ride %s: %v (leaving for redrive)", rideReq.RideID, err)
+			log.Printf("Worker [ride-request-events]: match/assign error for ride %s: %v (leaving for redrive)", rideReq.RideID, err)
 			return
 		}
 
 		if result.Assigned {
 			log.Printf("Worker [ride-request-events]: assigned driver %s to ride %s", result.DriverID, rideReq.RideID)
 		} else {
-			log.Printf("Worker [ride-request-events]: all candidate claims failed for ride %s (concurrent races lost); leaving ride unassigned", rideReq.RideID)
+			log.Printf("Worker [ride-request-events]: ride %s remained unassigned", rideReq.RideID)
 		}
 
 		deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)

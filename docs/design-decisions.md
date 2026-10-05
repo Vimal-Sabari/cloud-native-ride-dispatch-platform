@@ -204,3 +204,19 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Fallback-Within-Fallback for Rectangular Batches:**
   - When concurrent ride requests exceed available nearby drivers ($N > M$), the rectangular Hungarian solver pairs excess requests to dummy columns (`assignment[i] == -1`).
   - Unassigned requests automatically fall back to individual naive nearest driver lookup. This ensures that losing the global optimization contest does not leave a rider without candidates if any reachable driver exists.
+
+## ADR: A/B Comparison via Structured Logs, Not a Separate Metrics Store
+
+**Decision:** Capture match-decision evaluation telemetry (`strategy`, `rideId`, `candidatesConsidered`, `assigned`, `chosenDistanceMeters`, `decisionDurationMs`, `batchSize`, `timestamp`, `logType = "match_decision"`) as structured JSON records emitted directly to stdout (`os.Stdout`), rather than introducing a separate dedicated metrics datastore or telemetry daemon.
+
+**Why:**
+
+- **Zero Operational & Infrastructure Overhead:**
+  - Introducing a dedicated timeseries database (e.g., Prometheus/InfluxDB) or push-based metrics client (e.g., StatsD daemon) adds external infrastructure dependencies, connection pools, and network round trips to the critical path of ride dispatch.
+  - Emitting structured newline-delimited JSON directly to stdout executes in sub-microsecond local time with minimal heap allocation, decoupling telemetry from external availability.
+- **Decoupled Offline Analysis via CLI Tools:**
+  - Emitting self-contained decision records enables lightweight, flexible offline analysis using standalone scripts (`scripts/analyze-match-decisions.js`) or standard Unix tools (`jq`, `grep`). Operators and developers can run comparative A/B quality and latency benchmarks from captured log streams without querying complex analytics engines.
+- **Resilience Guarantee (Zero Crash Impact):**
+  - Logging must never compromise or crash the core dispatch pipeline. `LogMatchDecision` handles serialization defensively, emitting plain-text fallback notices on error and ensuring matching decisions always complete regardless of log sink state.
+- **Forward-Compatibility with CloudWatch Metrics (Modules 25 & 26):**
+  - This decision serves as the foundational data contract for subsequent production telemetry. In Modules 25 and 26, CloudWatch Logs subscription filters, CloudWatch Metric Filters, or AWS Embedded Metric Format (EMF) can seamlessly aggregate these exact fields (`chosenDistanceMeters`, `decisionDurationMs`, `batchSize`) into dimensional CloudWatch metrics without requiring structural redesign of the Matching Service decision pipeline.
