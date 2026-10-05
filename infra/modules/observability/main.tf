@@ -36,6 +36,7 @@ resource "aws_cloudwatch_metric_alarm" "ride_request_dlq_depth" {
   }
   alarm_actions     = [aws_sns_topic.ops_alerts.arn]
   alarm_description = "Fires when any message lands in the ride-request-events DLQ, indicating repeated processing failures."
+  depends_on        = [aws_sns_topic.ops_alerts]
 }
 
 resource "aws_cloudwatch_metric_alarm" "location_events_dlq_depth" {
@@ -52,6 +53,7 @@ resource "aws_cloudwatch_metric_alarm" "location_events_dlq_depth" {
   }
   alarm_actions     = [aws_sns_topic.ops_alerts.arn]
   alarm_description = "Fires when any message lands in the location-events DLQ, indicating repeated processing failures."
+  depends_on        = [aws_sns_topic.ops_alerts]
 }
 
 # ------------------------------------------------------------------------------
