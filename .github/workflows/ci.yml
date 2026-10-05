@@ -207,6 +207,18 @@ jobs:
           bash scripts/build-node-lambda.sh services/notification-service src/handlers/sns-fanout-entry.ts fanout
           bash scripts/build-go-lambda.sh services/event-forwarder event-forwarder
 
+      - name: Verify LocalStack Connectivity
+        run: |
+          for i in {1..30}; do
+            if aws s3 ls --endpoint-url=http://localhost:4566 2>/dev/null; then
+              echo "LocalStack is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LocalStack failed to start"
+          exit 1
+
       - name: Provision Terraform Infrastructure against LocalStack
         run: |
           # Backend override: Temporarily disable the remote S3 backend configuration
@@ -222,27 +234,37 @@ jobs:
           terraform init
           export TF_LOG=DEBUG
           export TF_LOG_PATH=/tmp/terraform.log
+          export TF_LOG_CORE=TRACE
+
+          # Increase provider timeout
+          export TF_CLI_CONFIG_FILE=/tmp/.terraformrc
+          cat > $TF_CLI_CONFIG_FILE <<EOF
+          provider_installation {
+            direct {}
+          }
+          EOF
 
           # Retry logic with better diagnostics and parallelism limit to reduce load on LocalStack
-          for i in {1..3}; do
-            echo "Terraform apply attempt $i/3..."
+          for i in {1..5}; do
+            echo "Terraform apply attempt $i/5..."
             if terraform plan -input=false -var-file=local.tfvars -parallelism=2 -out=tfplan 2>&1 | tee plan.log && \
-               terraform apply -input=false -parallelism=2 tfplan 2>&1 | tee apply.log; then
+               terraform apply -input=false -parallelism=2 -no-color tfplan 2>&1 | tee apply.log; then
               echo "Terraform apply succeeded"
               break
-            elif [ $i -eq 3 ]; then
+            elif [ $i -lt 5 ]; then
+              echo "Attempt $i failed, retrying after 10 seconds..."
+              sleep 10
+              terraform refresh || true
+            else
               echo "=== TERRAFORM PLAN ERRORS ==="
               grep -i "error\|warning" plan.log || cat plan.log | tail -n 100
               echo "=== TERRAFORM APPLY ERRORS ==="
               grep -i "error\|warning" apply.log || cat apply.log | tail -n 100
               echo "=== TERRAFORM DEBUG LOGS ==="
-              cat /tmp/terraform.log | tail -n 250
+              tail -n 500 /tmp/terraform.log
               echo "=== LOCALSTACK CONTAINER LOGS ==="
-              docker logs ride-dispatch-localstack --tail 200
+              docker logs ride-dispatch-localstack --tail 300
               exit 1
-            else
-              echo "Attempt $i failed, retrying after longer delay..."
-              sleep 10
             fi
           done
 
