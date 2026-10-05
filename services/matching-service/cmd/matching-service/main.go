@@ -104,6 +104,25 @@ func main() {
 		}
 	}
 
+	matchingStrategy := os.Getenv("MATCHING_STRATEGY")
+	if matchingStrategy == "" {
+		matchingStrategy = "naive"
+	}
+
+	batchWindowMs := 3000
+	if v := os.Getenv("BATCH_WINDOW_MS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			batchWindowMs = parsed
+		}
+	}
+
+	maxBatchSize := 20
+	if v := os.Getenv("MAX_BATCH_SIZE"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			maxBatchSize = parsed
+		}
+	}
+
 	// 2. Set up root context with graceful cancellation on SIGINT/SIGTERM
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -127,6 +146,21 @@ func main() {
 		TripService: tripClient,
 	}
 
+	var batchWindow *matcher.Window
+	if matchingStrategy == "batch" {
+		batchMatcher := matcher.BatchMatcher{}
+		batchWindow = matcher.NewWindow(
+			time.Duration(batchWindowMs)*time.Millisecond,
+			maxBatchSize,
+			func(batch []models.RideRequest) {
+				flushCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+				defer cancel()
+				matcher.ProcessBatch(flushCtx, batch, geoIndex, batchMatcher, matchStrategy, assigner)
+			},
+		)
+		defer batchWindow.Stop()
+	}
+
 	// 4. Log startup banner
 	log.Println("==================================================================")
 	log.Println("Ride Dispatch Platform - Matching Service")
@@ -137,6 +171,11 @@ func main() {
 	log.Printf("SQS Endpoint:         %s", sqsEndpoint)
 	log.Printf("Trip Service Base:    %s", tripServiceBaseURL)
 	log.Printf("Poll Wait Time:       %d seconds", pollWaitTimeSeconds)
+	log.Printf("Matching Strategy:    %s", matchingStrategy)
+	if matchingStrategy == "batch" {
+		log.Printf("Batch Window:         %d ms", batchWindowMs)
+		log.Printf("Max Batch Size:       %d", maxBatchSize)
+	}
 	log.Println("Matching Service daemon started successfully.")
 	log.Println("==================================================================")
 
@@ -153,7 +192,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		pollRideRequestEvents(ctx, sqsClient, rideRequestQueueURL, sqsEndpoint, pollWaitTimeSeconds, geoIndex, matchStrategy, assigner)
+		pollRideRequestEvents(ctx, sqsClient, rideRequestQueueURL, sqsEndpoint, pollWaitTimeSeconds, geoIndex, matchStrategy, assigner, batchWindow)
 	}()
 
 	// 7. Wait for shutdown signal
@@ -161,6 +200,9 @@ func main() {
 	log.Println("Matching Service: shutdown signal received; waiting for in-flight polling workers to complete...")
 
 	wg.Wait()
+	if batchWindow != nil {
+		batchWindow.Stop()
+	}
 	log.Println("Matching Service: all worker loops exited cleanly. Process terminating.")
 }
 
@@ -254,6 +296,7 @@ func pollRideRequestEvents(
 	geoIndex *geoindex.GeoIndex,
 	strategy matcher.MatchStrategy,
 	assigner *assignment.Assigner,
+	window *matcher.Window,
 ) {
 	effectiveURL := normalizeQueueURL(queueURL, endpoint)
 	log.Printf("Worker [ride-request-events]: polling started on %s", effectiveURL)
@@ -284,7 +327,7 @@ func pollRideRequestEvents(
 			if ctx.Err() != nil {
 				return
 			}
-			processRideRequestMessage(ctx, client, effectiveURL, msg, geoIndex, strategy, assigner)
+			processRideRequestMessage(ctx, client, effectiveURL, msg, geoIndex, strategy, assigner, window)
 		}
 	}
 }
@@ -297,6 +340,7 @@ func processRideRequestMessage(
 	geoIndex *geoindex.GeoIndex,
 	strategy matcher.MatchStrategy,
 	assigner *assignment.Assigner,
+	window *matcher.Window,
 ) {
 	if msg.Body == nil {
 		return
@@ -330,6 +374,19 @@ func processRideRequestMessage(
 			},
 		}
 
+		if window != nil {
+			// Batch Strategy Path:
+			// Enqueue request into the in-memory batch window and immediately delete from SQS.
+			// Architectural Note:
+			// In batch mode, the Window itself — rather than SQS visibility timeout — holds the request
+			// during the aggregation period. This prevents visibility timeout expiration and duplicate
+			// redelivery while waiting for the batch window or size threshold to be reached.
+			window.Add(rideReq)
+			deleteSQSMessage(ctx, client, queueURL, msg.ReceiptHandle)
+			return
+		}
+
+		// Naive Strategy Path (per-message immediate matching):
 		candidates, err := strategy.FindMatch(ctx, rideReq, geoIndex)
 		if err != nil {
 			log.Printf("Worker [ride-request-events]: FindMatch error for ride %s: %v (leaving for redrive)", rideReq.RideID, err)
