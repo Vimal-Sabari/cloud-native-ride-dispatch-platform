@@ -92,12 +92,12 @@ export async function reassignStaleMatches(
   const nowMs = Date.now();
   const cutoffMs = nowMs - timeoutSeconds * 1000;
 
-  // 1. Discover rides in MATCHED state using GSI4, with graceful fallback to scan
+  // 1. Discover rides in MATCHED state using GSI4
   let candidates: RideDetailsItem[] = [];
   try {
     const queryResults = await deps.query({
       indexName: 'GSI4',
-      keyConditionExpression: 'GSI4PK = :gsi4pk',
+      keyConditionExpression: '#gsi4pk = :gsi4pk',
       expressionAttributeNames: {
         '#gsi4pk': 'GSI4PK',
       },
@@ -106,10 +106,13 @@ export async function reassignStaleMatches(
       },
     });
     candidates = queryResults as RideDetailsItem[];
+    console.info(
+      `[reassign-stale-matches] Discovered ${candidates.length} candidate rides in GSI4 for STATE#MATCHED`,
+    );
   } catch (queryErr) {
-    console.warn(
-      '[reassign-stale-matches] GSI4 query failed or index not ready; falling back to main table query/scan:',
-      queryErr instanceof Error ? queryErr.message : String(queryErr),
+    console.error(
+      '[reassign-stale-matches] GSI4 query failed:',
+      queryErr instanceof Error ? queryErr.stack || queryErr.message : String(queryErr),
     );
     candidates = [];
   }

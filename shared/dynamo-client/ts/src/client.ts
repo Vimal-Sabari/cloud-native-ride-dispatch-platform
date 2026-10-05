@@ -145,14 +145,24 @@ export class DynamoClient {
     let lastEvaluatedKey: Record<string, unknown> | undefined;
 
     do {
+      const names: Record<string, string> = {};
+      if (input.expressionAttributeNames) {
+        for (const [k, v] of Object.entries(input.expressionAttributeNames)) {
+          if (
+            input.keyConditionExpression.includes(k) ||
+            (input.filterExpression && input.filterExpression.includes(k))
+          ) {
+            names[k] = v;
+          }
+        }
+      }
+
       const response = await this.docClient.send(
         new QueryCommand({
           TableName: this.tableName,
           IndexName: input.indexName,
           KeyConditionExpression: input.keyConditionExpression,
-          ...(input.expressionAttributeNames && Object.keys(input.expressionAttributeNames).length > 0
-            ? { ExpressionAttributeNames: input.expressionAttributeNames }
-            : {}),
+          ...(Object.keys(names).length > 0 ? { ExpressionAttributeNames: names } : {}),
           ExpressionAttributeValues: input.expressionAttributeValues,
           FilterExpression: input.filterExpression,
           ExclusiveStartKey: lastEvaluatedKey,

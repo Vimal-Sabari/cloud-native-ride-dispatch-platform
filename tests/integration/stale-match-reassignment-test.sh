@@ -122,11 +122,20 @@ aws dynamodb put-item \
 # Invoke reassign-stale-matches Lambda
 RESPONSE_FILE=$(mktemp 2>/dev/null || echo "/tmp/reassign-resp-$RANDOM.json")
 echo "Invoking $FUNCTION_NAME directly..."
-aws lambda invoke \
+INVOKE_OUTPUT=$(aws lambda invoke \
   --endpoint-url "$ENDPOINT_URL" \
   --function-name "$FUNCTION_NAME" \
   --region "$REGION" \
-  "$RESPONSE_FILE"
+  --log-type Tail \
+  "$RESPONSE_FILE")
+
+echo "$INVOKE_OUTPUT"
+LOG_B64=$(echo "$INVOKE_OUTPUT" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("LogResult", ""))' 2>/dev/null || true)
+if [ -n "$LOG_B64" ]; then
+  echo "--- Lambda Execution Logs ---"
+  echo "$LOG_B64" | base64 -d 2>/dev/null || true
+  echo "-----------------------------"
+fi
 
 echo "Lambda response:"
 cat "$RESPONSE_FILE"
