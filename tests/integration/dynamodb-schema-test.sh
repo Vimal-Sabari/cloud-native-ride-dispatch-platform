@@ -83,9 +83,9 @@ data = json.load(sys.stdin)
 gsis = data["Table"].get("GlobalSecondaryIndexes", [])
 print(len(gsis))
 ')
-assert_equals "GlobalSecondaryIndexes count is 3" "$GSI_COUNT" "3"
+assert_equals "GlobalSecondaryIndexes count is 4" "$GSI_COUNT" "4"
 
-for GSI_NAME in GSI1 GSI2 GSI3; do
+for GSI_NAME in GSI1 GSI2 GSI3 GSI4; do
   echo "Checking $GSI_NAME..."
   
   HASH_KEY=$(echo "$TABLE_JSON" | python3 -c "

@@ -310,8 +310,8 @@ resource "aws_iam_role_policy" "trip_reassign_sqs_send_policy" {
 # Scheduled EventBridge Rule for Stale Match Reassignment (Module 27)
 resource "aws_cloudwatch_event_rule" "reassign_stale_matches" {
   name                = "${var.project_name}-${var.environment}-reassign-stale-matches"
-  description         = "Trigger stale match reassignment check every 30 seconds"
-  schedule_expression = "rate(30 seconds)"
+  description         = "Trigger stale match reassignment check periodically"
+  schedule_expression = "rate(1 minute)"
 }
 
 resource "aws_cloudwatch_event_target" "reassign_stale_matches_target" {
