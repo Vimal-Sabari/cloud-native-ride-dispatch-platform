@@ -166,3 +166,21 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Just-in-Time Shared Code Extraction:** Prior to Module 20, `services/auth-stub` was the sole consumer of JWT logic in TypeScript (issuing tokens and validating them in its custom API Gateway authorizer). Rather than speculatively abstracting auth verification into a shared library early, extraction was deferred until a genuine second consumer emerged.
 - **Notification Service as the Second Consumer:** In Module 20, Notification Service introduces a WebSocket `$connect` handler that must authenticate incoming client connections by verifying their bearer JWT before storing connection mappings. Notification Service is the first real second consumer of token verification in TypeScript.
 - **Separation of Issuance vs. Verification:** `signToken` remains inside `services/auth-stub` because issuing authentication tokens is a privileged responsibility exclusive to the auth service. In contrast, verifying incoming tokens is a cross-cutting concern needed by any service accepting and validating user/driver requests directly.
+
+## ADR: Self-Implemented Hungarian Algorithm
+
+**Decision:** Implement the Hungarian algorithm (Kuhn-Munkres) for minimum-weight bipartite matching from first principles in Go (`shared/matching-algorithms/`), with no third-party package dependencies. Rectangular matrices are supported via dynamic sentinel-cost padding, and correctness is rigorously verified via an exhaustive brute-force permutation cross-check.
+
+**Why:**
+
+- **Zero Third-Party Dependencies (First-Principles Implementation):** Consistent with Module 5's geohash "build it yourself" precedent, implementing core foundational algorithms directly within the repository avoids external dependency vulnerabilities, version drift, and opaque black-box edge cases. This grants the team full control over numerical stability, memory allocations, and performance optimization in the batch matching loop.
+- **O(n³) Time Complexity via Dual Potentials:** The implementation uses the standard augmenting-path-with-potentials (Kuhn-Munkres via dual variables `u` and `v`) formulation. For an $n \times n$ matrix, each augmenting path step finds an augmenting path and updates potentials in $O(n^2)$ time across $n$ stages, guaranteeing strict $O(n^3)$ worst-case time complexity.
+- **Dynamic Sentinel Padding for Rectangular Matrices:**
+  - Real-world ride dispatch is fundamentally rectangular: the number of ride requests $N$ rarely equals the number of available candidate drivers $M$.
+  - Rather than padding with extreme values like `math.MaxFloat64` (which immediately overflows to `+Inf` or yields `NaN` during dual potential arithmetic: `cost[i][j] - u[i] - v[j]` and `delta` updates), the library dynamically computes:
+    $$\text{sentinel} = 10 \times \max(|cost_{\max}|, 1.0) + 100.0$$
+  - This ensures dummy row/column edges are strictly more expensive than any real assignment, guaranteeing that real driver-rider pairs are matched whenever possible while maintaining complete arithmetic safety and stability.
+  - After solving, matches to dummy nodes are stripped (setting unassigned real rows to `-1`), and `totalCost` is accumulated exclusively from the original real costs.
+- **Exhaustive Brute-Force Testing Guarantee:**
+  - To prove mathematical correctness without relying on third-party libraries, the test suite implements an independent permutation-enumeration reference solver (`bruteForceOptimalCost`).
+  - The property test generates over 100 randomized cost matrices (sizes 1×1 to 7×7) and proves that `Solve` consistently matches the absolute global minimum cost within floating-point tolerance ($10^{-9}$), while hand-crafted trap matrices prove it avoids local greedy choices.
