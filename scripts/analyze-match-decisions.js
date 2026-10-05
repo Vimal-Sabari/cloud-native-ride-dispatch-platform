@@ -88,9 +88,15 @@ rl.on('close', () => {
     return;
   }
 
-  console.log('\n========================================================================================');
-  console.log('                      MATCHING SERVICE A/B COMPARISON REPORT                            ');
-  console.log('========================================================================================');
+  console.log(
+    '\n========================================================================================',
+  );
+  console.log(
+    '                      MATCHING SERVICE A/B COMPARISON REPORT                            ',
+  );
+  console.log(
+    '========================================================================================',
+  );
 
   const summary = {};
 
@@ -99,11 +105,12 @@ rl.on('close', () => {
     const successRate = s.total > 0 ? ((s.assigned / s.total) * 100).toFixed(1) + '%' : '0.0%';
     const avgDistance = s.assigned > 0 ? (s.totalDistance / s.assigned).toFixed(2) + ' m' : 'N/A';
     const avgDuration = s.total > 0 ? (s.totalDuration / s.total).toFixed(2) + ' ms' : '0.00 ms';
-    const avgBatchSize = strategy === 'batch' && s.total > 0 ? (s.totalBatchSize / s.total).toFixed(2) : 'N/A';
+    const avgBatchSize =
+      strategy === 'batch' && s.total > 0 ? (s.totalBatchSize / s.total).toFixed(2) : 'N/A';
 
     summary[strategy] = {
       'Total Decisions': s.total,
-      'Assigned': s.assigned,
+      Assigned: s.assigned,
       'Not Assigned': s.notAssigned,
       'Success Rate': successRate,
       'Avg Distance (Assigned)': avgDistance,
@@ -113,5 +120,7 @@ rl.on('close', () => {
   }
 
   console.table(summary);
-  console.log('========================================================================================\n');
+  console.log(
+    '========================================================================================\n',
+  );
 });
