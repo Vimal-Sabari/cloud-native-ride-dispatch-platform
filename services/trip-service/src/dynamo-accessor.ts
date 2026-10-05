@@ -8,7 +8,9 @@
 export interface QueryInput {
   indexName?: string;
   keyConditionExpression: string;
+  expressionAttributeNames?: Record<string, string>;
   expressionAttributeValues: Record<string, unknown>;
+  filterExpression?: string;
 }
 
 export interface SnsPublisher {

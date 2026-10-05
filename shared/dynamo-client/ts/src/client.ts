@@ -11,6 +11,7 @@ import {
 export interface QueryInput {
   indexName?: string;
   keyConditionExpression: string;
+  expressionAttributeNames?: Record<string, string>;
   expressionAttributeValues: Record<string, unknown>;
   filterExpression?: string;
 }
@@ -149,6 +150,9 @@ export class DynamoClient {
           TableName: this.tableName,
           IndexName: input.indexName,
           KeyConditionExpression: input.keyConditionExpression,
+          ...(input.expressionAttributeNames && Object.keys(input.expressionAttributeNames).length > 0
+            ? { ExpressionAttributeNames: input.expressionAttributeNames }
+            : {}),
           ExpressionAttributeValues: input.expressionAttributeValues,
           FilterExpression: input.filterExpression,
           ExclusiveStartKey: lastEvaluatedKey,

@@ -97,7 +97,10 @@ export async function reassignStaleMatches(
   try {
     const queryResults = await deps.query({
       indexName: 'GSI4',
-      keyConditionExpression: '#gsi4pk = :gsi4pk',
+      keyConditionExpression: 'GSI4PK = :gsi4pk',
+      expressionAttributeNames: {
+        '#gsi4pk': 'GSI4PK',
+      },
       expressionAttributeValues: {
         ':gsi4pk': 'STATE#MATCHED',
       },
@@ -108,18 +111,7 @@ export async function reassignStaleMatches(
       '[reassign-stale-matches] GSI4 query failed or index not ready; falling back to main table query/scan:',
       queryErr instanceof Error ? queryErr.message : String(queryErr),
     );
-    // Graceful fallback: scan table for state = MATCHED
-    try {
-      const scanResults = await deps.query({
-        keyConditionExpression: '#state = :matched',
-        expressionAttributeValues: {
-          ':matched': 'MATCHED',
-        },
-      });
-      candidates = scanResults as RideDetailsItem[];
-    } catch {
-      candidates = [];
-    }
+    candidates = [];
   }
 
   const reassignedRideIds: string[] = [];

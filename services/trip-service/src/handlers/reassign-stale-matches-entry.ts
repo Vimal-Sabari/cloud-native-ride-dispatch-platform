@@ -52,11 +52,26 @@ const sqsClient = new SQSClient({
   },
 });
 
+function resolveQueueUrl(rawUrl: string): string {
+  if (!rawUrl) return rawUrl;
+  const endpoint = getSqsEndpoint();
+  if (endpoint && (rawUrl.includes('localhost') || rawUrl.includes('127.0.0.1'))) {
+    try {
+      const endpointHost = new URL(endpoint).host;
+      return rawUrl.replace(/^(https?:\/\/)[^/]+/, `$1${endpointHost}`);
+    } catch {
+      return rawUrl;
+    }
+  }
+  return rawUrl;
+}
+
 const sqsSender: SqsSender = {
   async sendMessage(queueUrl: string, messageBody: string): Promise<unknown> {
+    const targetUrl = resolveQueueUrl(queueUrl);
     return sqsClient.send(
       new SendMessageCommand({
-        QueueUrl: queueUrl,
+        QueueUrl: targetUrl,
         MessageBody: messageBody,
       }),
     );
@@ -91,7 +106,7 @@ export const handler = async (
 
   const rawTimeout = process.env.DRIVER_ACCEPT_TIMEOUT_SECONDS;
   const timeoutSeconds = rawTimeout ? parseInt(rawTimeout, 10) : 60;
-  const queueUrl = process.env.RIDE_REQUEST_EVENTS_QUEUE_URL || '';
+  const queueUrl = resolveQueueUrl(process.env.RIDE_REQUEST_EVENTS_QUEUE_URL || '');
 
   try {
     const result = await reassignStaleMatches(timeoutSeconds, dynamoClient, sqsSender, queueUrl);
