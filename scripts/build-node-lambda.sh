@@ -114,12 +114,16 @@ echo "2. Packaging into ${OUTPUT_NAME}.zip..."
 cd "$DIST_DIR"
 if command -v zip >/dev/null 2>&1; then
   zip -q "../../${OUTPUT_NAME}.zip" index.js
+elif python3 -c "import sys" >/dev/null 2>&1; then
+  python3 -m zipfile -c "../../${OUTPUT_NAME}.zip" index.js
+elif python -c "import sys" >/dev/null 2>&1; then
+  python -m zipfile -c "../../${OUTPUT_NAME}.zip" index.js
+elif py -c "import sys" >/dev/null 2>&1; then
+  py -m zipfile -c "../../${OUTPUT_NAME}.zip" index.js
+elif command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -Command "Compress-Archive -Path 'index.js' -DestinationPath '../../${OUTPUT_NAME}.zip' -Force"
 elif command -v tar >/dev/null 2>&1; then
   tar -a -cf "../../${OUTPUT_NAME}.zip" index.js
-elif command -v python3 >/dev/null 2>&1; then
-  python3 -m zipfile -c "../../${OUTPUT_NAME}.zip" index.js
-elif command -v python >/dev/null 2>&1; then
-  python -m zipfile -c "../../${OUTPUT_NAME}.zip" index.js
 fi
 cd "$ORIGINAL_DIR"
 

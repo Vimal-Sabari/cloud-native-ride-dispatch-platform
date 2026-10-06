@@ -52,6 +52,14 @@ fi
 echo "2. Packaging bootstrap into ${CMD_SUBDIR}.zip..."
 if command -v zip >/dev/null 2>&1; then
   zip -q "${CMD_SUBDIR}.zip" bootstrap
+elif python3 -c "import sys" >/dev/null 2>&1; then
+  python3 -m zipfile -c "${CMD_SUBDIR}.zip" bootstrap
+elif python -c "import sys" >/dev/null 2>&1; then
+  python -m zipfile -c "${CMD_SUBDIR}.zip" bootstrap
+elif py -c "import sys" >/dev/null 2>&1; then
+  py -m zipfile -c "${CMD_SUBDIR}.zip" bootstrap
+elif command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -Command "Compress-Archive -Path 'bootstrap' -DestinationPath '${CMD_SUBDIR}.zip' -Force"
 else
   tar -a -cf "${CMD_SUBDIR}.zip" bootstrap
 fi
