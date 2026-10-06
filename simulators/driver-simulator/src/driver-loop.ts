@@ -67,23 +67,7 @@ export async function runDriverLoop(
     try {
       const token = await tokenCache.getToken();
 
-      // 1. Send Location Update
-      const locUrl = `${config.locationServiceBaseUrl}/drivers/${driverId}/location`;
-      const locRes = await fetch(locUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          lat: currentPos.lat,
-          lng: currentPos.lng,
-        }),
-      });
-
-      const locOk = locRes.ok ? 'OK' : `FAIL (${locRes.status})`;
-
-      // 2. Periodically send Status Update (on first iteration and roughly every 15-20 iterations)
+      // 1. Periodically send Status Update (always on first iteration, and roughly every 15-20 iterations)
       let statusLog = '';
       if (iteration === 1 || iteration % 18 === 0) {
         if (iteration > 1) {
@@ -102,8 +86,24 @@ export async function runDriverLoop(
           }),
         });
 
-        statusLog = ` | Status Update: ${currentStatus} (${statusRes.status} ${statusRes.statusText})`;
+        statusLog = ` | Status: ${currentStatus} (${statusRes.status})`;
       }
+
+      // 2. Send Location Update
+      const locUrl = `${config.locationServiceBaseUrl}/drivers/${driverId}/location`;
+      const locRes = await fetch(locUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          lat: currentPos.lat,
+          lng: currentPos.lng,
+        }),
+      });
+
+      const locOk = locRes.ok ? 'OK' : `FAIL (${locRes.status})`;
 
       console.log(
         `[${driverId}] Location: (${currentPos.lat.toFixed(5)}, ${currentPos.lng.toFixed(5)}) | HTTP ${locRes.status} ${locOk}${statusLog} | Next: ${intervalMs}ms`,

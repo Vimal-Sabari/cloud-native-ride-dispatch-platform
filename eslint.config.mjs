@@ -20,6 +20,23 @@ export default tseslint.config(
     },
   },
   {
+    files: ['tests/load/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.builtin,
+        __ENV: 'readonly',
+        __VU: 'readonly',
+        __ITER: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-undef': 'off',
+    },
+  },
+  {
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
