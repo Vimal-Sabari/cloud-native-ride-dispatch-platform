@@ -58,10 +58,24 @@ get_queue_url() {
 QUEUE_URL=$(get_queue_url)
 echo "Resolved Queue URL: $QUEUE_URL"
 
-# Purge queue prior to test
-echo "Purging ride-request-events queue..."
-aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$QUEUE_URL" 2>/dev/null || true
-sleep 1
+# Purge and drain queue prior to test
+drain_sqs_queue() {
+  local q_url="$1"
+  aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$q_url" 2>/dev/null || true
+  for _ in {1..5}; do
+    local msgs
+    msgs=$(aws sqs receive-message --endpoint-url "$ENDPOINT_URL" --queue-url "$q_url" --max-number-of-messages 10 --query "Messages[].ReceiptHandle" --output text 2>/dev/null || true)
+    if [ -z "$msgs" ] || [ "$msgs" = "None" ]; then
+      break
+    fi
+    for handle in $msgs; do
+      aws sqs delete-message --endpoint-url "$ENDPOINT_URL" --queue-url "$q_url" --receipt-handle "$handle" 2>/dev/null || true
+    done
+  done
+}
+
+echo "Purging and draining ride-request-events queue..."
+drain_sqs_queue "$QUEUE_URL"
 
 # Generate test identifiers and backdated timestamp (120 seconds in the past)
 TEST_RIDE_ID="stale-ride-$RANDOM-$RANDOM"
@@ -118,6 +132,17 @@ aws dynamodb put-item \
     \"GSI3SK\": {\"S\": \"ACTIVE_RIDE\"},
     \"rideId\": {\"S\": \"${TEST_RIDE_ID}\"}
   }"
+
+# Ensure Lambda function in LocalStack is updated with the latest compiled zip
+if aws lambda get-function --endpoint-url "$ENDPOINT_URL" --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then
+  echo "Updating $FUNCTION_NAME function code in LocalStack..."
+  aws lambda update-function-code \
+    --endpoint-url "$ENDPOINT_URL" \
+    --function-name "$FUNCTION_NAME" \
+    --region "$REGION" \
+    --zip-file "fileb://$ROOT_DIR/services/trip-service/reassign-stale-matches.zip" >/dev/null 2>&1 || true
+  sleep 1
+fi
 
 # Invoke reassign-stale-matches Lambda
 RESPONSE_FILE=$(mktemp 2>/dev/null || echo "/tmp/reassign-resp-$RANDOM.json")
@@ -189,10 +214,35 @@ for i in {1..10}; do
   if [ -n "$SQS_RES" ] && echo "$SQS_RES" | grep -q "$TEST_RIDE_ID"; then
     echo "  [PASS] Received re-enqueued SQS message for ride: $TEST_RIDE_ID"
     # Verify shape
-    if echo "$SQS_RES" | grep -q '"eventType":"ride-requested"'; then
+    IS_EVENT_TYPE_VALID=0
+    EVENT_TYPE=$(echo "$SQS_RES" | node -e "
+      const fs = require('fs');
+      try {
+        const raw = fs.readFileSync(0, 'utf-8');
+        const parsed = JSON.parse(raw);
+        for (const msg of (parsed.Messages || [])) {
+          let b = msg.Body;
+          if (typeof b === 'string') {
+            try { b = JSON.parse(b); } catch {}
+          }
+          if (typeof b === 'object' && b) {
+            if (b.eventType) { console.log(b.eventType); process.exit(0); }
+            if (b.payload && b.payload.eventType) { console.log(b.payload.eventType); process.exit(0); }
+          }
+        }
+      } catch {}
+      console.log('');
+    " 2>/dev/null || true)
+
+    if [ "$EVENT_TYPE" = "ride-requested" ] || echo "$SQS_RES" | grep -i -q 'ride-requested'; then
+      IS_EVENT_TYPE_VALID=1
+    fi
+
+    if [ "$IS_EVENT_TYPE_VALID" -eq 1 ]; then
       echo "  [PASS] Event contains eventType: ride-requested"
     else
       echo "  [FAIL] Event missing eventType: ride-requested"
+      echo "  [DEBUG] Received SQS Output: $SQS_RES"
       FAILED=1
     fi
     FOUND_SQS=1

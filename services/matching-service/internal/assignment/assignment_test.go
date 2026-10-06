@@ -439,4 +439,3 @@ func TestAssigner_StatusUpdaterAndAssignedRideId(t *testing.T) {
 		t.Errorf("expected assignedRideId to be 'ride-test-sync', got %+v", claimCall.item["assignedRideId"])
 	}
 }
-
