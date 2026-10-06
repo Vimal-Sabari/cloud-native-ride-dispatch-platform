@@ -1,5 +1,35 @@
 # Architecture Decision Records (ADRs)
 
+This document records the architectural and engineering decisions made across the lifecycle of the **Cloud-Native Ride Dispatch & Matching Platform** (Modules 1 through 29).
+
+## Table of Contents
+
+1. [ADR: Polyglot Architecture — Go for Location/Matching, TypeScript for Trip/Notification](#adr-polyglot-architecture--go-for-locationmatching-typescript-for-tripnotification)
+2. [ADR: Geohash Precision — 5 Characters](#adr-geohash-precision--5-characters)
+3. [ADR: Single-Table Design with Three GSIs](#adr-single-table-design-with-three-gsis)
+4. [ADR: Parallel Go/TS DynamoDB Wrappers with Matching Semantics](#adr-parallel-gots-dynamodb-wrappers-with-matching-semantics)
+5. [ADR: Auth Stub, Not Production Auth](#adr-auth-stub-not-production-auth)
+6. [ADR: GSI1SK Consistency Between Location and Status Updates](#adr-gsi1sk-consistency-between-location-and-status-updates)
+7. [ADR: Internal Service-to-Service Auth for the Matching→Trip Callback](#adr-internal-service-to-service-auth-for-the-matchingtrip-callback)
+8. [ADR: One SNS Topic for All Notification-Worthy Events](#adr-one-sns-topic-for-all-notification-worthy-events)
+9. [ADR: SQS Visibility Timeout Sizing for Matching Service](#adr-sqs-visibility-timeout-sizing-for-matching-service)
+10. [ADR: DynamoDB Streams Event Forwarder Decoupling](#adr-dynamodb-streams-event-forwarder-decoupling)
+11. [ADR: Partial Batch Failure Handling via ReportBatchItemFailures](#adr-partial-batch-failure-handling-via-reportbatchitemfailures)
+12. [ADR: Claim-Then-Confirm Assignment, and What Happens When Confirm Fails](#adr-claim-then-confirm-assignment-and-what-happens-when-confirm-fails)
+13. [ADR: Local Testing Runs Matching Service as a Plain OS Process, Not Emulated EC2](#adr-local-testing-runs-matching-service-as-a-plain-os-process-not-emulated-ec2)
+14. [ADR: Refactoring JWT Verification into a Shared Package](#adr-refactoring-jwt-verification-into-a-shared-package)
+15. [ADR: Self-Implemented Hungarian Algorithm](#adr-self-implemented-hungarian-algorithm)
+16. [ADR: Batch Window Sizing and Graceful Degradation to Naive Matching](#adr-batch-window-sizing-and-graceful-degradation-to-naive-matching)
+17. [ADR: A/B Comparison via Structured Logs, Not a Separate Metrics Store](#adr-ab-comparison-via-structured-logs-not-a-separate-metrics-store)
+18. [ADR: zerolog (Go) and pino (TypeScript) for Structured Logging](#adr-zerolog-go-and-pino-typescript-for-structured-logging)
+19. [ADR: CloudWatch EMF for Custom Metrics, No Separate Metrics Backend](#adr-cloudwatch-emf-for-custom-metrics-no-separate-metrics-backend)
+20. [ADR: One Dashboard, Two DLQ-Depth Alarms — Minimal but Actionable Alerting](#adr-one-dashboard-two-dlq-depth-alarms--minimal-but-actionable-alerting)
+21. [ADR: System-Initiated MATCHED→REQUESTED Transition for Driver-Accept Timeouts](#adr-system-initiated-matchedrequested-transition-for-driver-accept-timeouts)
+22. [ADR: Idempotency Audit Findings](#adr-idempotency-audit-findings)
+23. [ADR: Manual-Approval-Gated Deploy, Not Full Continuous Deployment](#adr-manual-approval-gated-deploy-not-full-continuous-deployment)
+
+---
+
 ## ADR: Polyglot Architecture — Go for Location/Matching, TypeScript for Trip/Notification
 
 **Decision:** Location Service and Matching Service (plus their shared libraries: geospatial, matching-algorithms) are implemented in Go. Trip Service and Notification Service are implemented in TypeScript.

@@ -1,8 +1,132 @@
 # Architecture Documentation
 
-This document describes the high-level architecture, services, data models, and interaction patterns of the cloud-native ride-dispatch platform.
+This document describes the high-level architecture, services, data models, interaction patterns, and end-to-end event flows of the **Cloud-Native Ride Dispatch & Matching Platform**.
 
-## Location Service
+---
+
+## System Architecture Diagram
+
+```mermaid
+flowchart TD
+    subgraph Clients["Clients & Simulators"]
+        DriverClient["Driver Simulator / Mobile App"]
+        RiderClient["Rider Simulator / Mobile App"]
+    end
+
+    subgraph APIGW["Amazon API Gateway (REST API)"]
+        Authorizer["JWT Authorizer Lambda<br/>(services/auth-stub)"]
+        APILoc["POST /drivers/{id}/location<br/>POST /drivers/{id}/status"]
+        APITrip["POST /riders/{id}/rides<br/>GET /rides/{id}<br/>POST /rides/{id}/cancel"]
+        APIInternal["POST /internal/rides/{id}/assign-driver<br/>(x-internal-api-key)"]
+    end
+
+    subgraph LocationSvc["Location Service (Go / AWS Lambda)"]
+        UpdateLoc["update-location Lambda"]
+        UpdateStatus["update-status Lambda"]
+    end
+
+    subgraph TripSvc["Trip Service (TypeScript / AWS Lambda)"]
+        ReqRide["request-ride Lambda"]
+        GetRide["get-ride Lambda"]
+        CancelRide["cancel-ride Lambda"]
+        AssignDriver["assign-driver Lambda"]
+        ReassignStale["reassign-stale-matches Lambda"]
+    end
+
+    subgraph Storage["Storage & Event Streams"]
+        DDB[("Amazon DynamoDB<br/>Single Table<br/>(GSI1, GSI2, GSI3, GSI4)")]
+        DDBStream["DynamoDB Streams<br/>(NEW_AND_OLD_IMAGES)"]
+    end
+
+    subgraph EventRouting["Asynchronous Event Ingestion & Queuing"]
+        Forwarder["Event Forwarder Lambda<br/>(Go / DynamoDB Streams)"]
+        LocQueue["SQS: location-events"]
+        LocDLQ["SQS DLQ: location-events-dlq"]
+        RideQueue["SQS: ride-request-events"]
+        RideDLQ["SQS DLQ: ride-request-events-dlq"]
+    end
+
+    subgraph MatchingSvc["Matching Service (Go Daemon / Amazon EC2)"]
+        GeoIndex["In-Memory Spatial Index<br/>(Geohash Cells)"]
+        Matcher["Matching Engine<br/>(Hungarian Batch / Naive)"]
+        ClaimConfirm["Two-Phase Claim-Then-Confirm<br/>(Atomic CAS on DynamoDB)"]
+    end
+
+    subgraph EventsAndNotifications["Events & Real-Time Notifications"]
+        MatchSNS["SNS Topic: match-events<br/>(ride-matched, ride-cancelled)"]
+        FanoutLambda["Notification Fanout Lambda<br/>(TypeScript)"]
+        WSAPIGW["API Gateway WebSocket API<br/>($connect, $disconnect)"]
+        ConnectLambda["WebSocket connect / disconnect<br/>Lambdas (TypeScript)"]
+    end
+
+    subgraph Automation["Scheduled Automation & Operations"]
+        EventBridge["Amazon EventBridge Rule<br/>(rate: 1 minute)"]
+        CWAlarms["CloudWatch DLQ Alarms<br/>(depth > 0)"]
+        OpsSNS["SNS: ops-alerts Topic<br/>(Email Subscription)"]
+    end
+
+    %% Client Ingestion
+    DriverClient -->|Telemetry / Status + Bearer JWT| APILoc
+    RiderClient -->|Ride Request / Queries + Bearer JWT| APITrip
+    Authorizer -.->|Validate HS256 Token| APILoc
+    Authorizer -.->|Validate HS256 Token| APITrip
+
+    %% REST to Lambdas
+    APILoc --> UpdateLoc
+    APILoc --> UpdateStatus
+    APITrip --> ReqRide
+    APITrip --> GetRide
+    APITrip --> CancelRide
+    APIInternal --> AssignDriver
+
+    %% Service writes to DynamoDB
+    UpdateLoc -->|Write DRIVER#id LOCATION (GSI1)| DDB
+    UpdateStatus -->|Update status (available/busy)| DDB
+    ReqRide -->|Create RIDE#id DETAILS (REQUESTED)| DDB
+    CancelRide -->|Conditional update to CANCELLED| DDB
+    AssignDriver -->|Conditional update to MATCHED + GSI3| DDB
+    DDB --> DDBStream
+
+    %% Streams to Forwarder to SQS
+    DDBStream -->|Stream Shards| Forwarder
+    Forwarder -->|location-updated| LocQueue
+    Forwarder -->|ride-requested / ride-cancelled| RideQueue
+    LocQueue -.->|Dead letter on maxReceiveCount=5| LocDLQ
+    RideQueue -.->|Dead letter on maxReceiveCount=5| RideDLQ
+
+    %% Matching Service consumption
+    LocQueue -->|Poll heartbeats| GeoIndex
+    RideQueue -->|Poll ride requests| Matcher
+    Matcher -->|Query Candidate Drivers| GeoIndex
+    Matcher --> ClaimConfirm
+    ClaimConfirm -->|Phase 1: Claim driver (status -> busy)| DDB
+    ClaimConfirm -->|Phase 2: Confirm match via HTTP callback| APIInternal
+
+    %% Trip Service to SNS to Notifications
+    AssignDriver -->|Publish ride-matched event| MatchSNS
+    CancelRide -->|Publish ride-cancelled event| MatchSNS
+    MatchSNS --> FanoutLambda
+    FanoutLambda -->|Query connection IDs| DDB
+    FanoutLambda -->|Push real-time payload| WSAPIGW
+    WSAPIGW -->|Real-time Socket Frames| RiderClient
+    WSAPIGW -->|Real-time Socket Frames| DriverClient
+    RiderClient -.->|WebSocket Connect| WSAPIGW
+    DriverClient -.->|WebSocket Connect| WSAPIGW
+    WSAPIGW --> ConnectLambda
+    ConnectLambda -->|Store CONNECTION#id| DDB
+
+    %% Automation & Alerting
+    EventBridge -->|Trigger timeout check| ReassignStale
+    ReassignStale -->|Query GSI4 for expired MATCHED rides| DDB
+    ReassignStale -->|Reset MATCHED -> REQUESTED & release driver| DDB
+    ReassignStale -->|Direct SQS re-enqueue| RideQueue
+    LocDLQ -.->|Metric alarm| CWAlarms
+    RideDLQ -.->|Metric alarm| CWAlarms
+    CWAlarms --> OpsSNS
+```
+
+---
+
 
 The **Location Service** is responsible for receiving high-frequency driver telemetry (GPS coordinate heartbeats) and availability status transitions, keeping the real-time driver spatial index up to date in DynamoDB.
 
@@ -194,6 +318,34 @@ The **Matching Service** (`services/matching-service/`) is a continuous daemon w
    - For `ride-cancelled` events:
      - Acknowledges event; Trip Service state machine prevents cancelled rides from being assigned.
    - Deletes successfully processed messages.
+---
+
+## Notification Service
+
+The **Notification Service** (`services/notification-service/`) delivers real-time push event notifications to connected riders and drivers over bidirectional WebSockets via Amazon API Gateway WebSocket API.
+
+### Architectural Role
+
+- **Decoupled Asynchronous Fan-Out:** Subscribes to the `match-events` Amazon SNS topic. When Trip Service publishes `ride-matched` or `ride-cancelled` domain events, SNS delivers messages to the Notification Fanout Lambda asynchronously without blocking REST API responses.
+- **Connection Tracking in DynamoDB:** Maintains active WebSocket connection IDs mapped to authenticated user subjects (`RIDER#<id>`, `DRIVER#<id>`) in the single DynamoDB table.
+- **Self-Cleaning Stale Connections:** Automatically prunes disconnected socket IDs from DynamoDB upon receiving API Gateway `GoneException` (HTTP 410) during message post attempts.
+
+### Components & Handlers
+
+1. **`$connect` Lambda (`connectHandler`):**
+   - Validates caller JWT token from query string parameter (`?token=...`) via `@ride-dispatch/auth`.
+   - Stores forward item (`PK: CONNECTION#<connectionId>`, `SK: DETAILS`) and reverse mapping item (`PK: RIDER#<id>` or `DRIVER#<id>`, `SK: CONNECTION#<connectionId>`).
+   - Rejects unauthenticated connections with HTTP 401.
+
+2. **`$disconnect` Lambda (`disconnectHandler`):**
+   - Retrieves reverse subject pointer and deletes both forward and reverse connection records from DynamoDB.
+
+3. **SNS Fanout Lambda (`fanoutHandler`):**
+   - Receives batches of `SNSEvent` records.
+   - Extracts `rideId`, `riderId`, and optional `driverId`.
+   - Concurrently queries active socket connection IDs for the affected rider and driver.
+   - Dispatches formatted JSON notification frames via API Gateway Management API (`@connections/<connectionId>`).
+   - If an endpoint returns HTTP 410 (`GoneException`), immediately deletes the stale connection record to keep index lean.
 
 ---
 
