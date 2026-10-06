@@ -32,6 +32,15 @@ DLQ_URL="$1"
 SOURCE_URL="$2"
 REGION="${AWS_REGION:-us-east-1}"
 
+# Normalize LocalStack URLs if endpoint URL is specified
+if [ -n "${AWS_ENDPOINT_URL:-}" ]; then
+  DLQ_URL=$(echo "$DLQ_URL" | sed -E 's|http://[^/]+:4566|'"$AWS_ENDPOINT_URL"'|')
+  SOURCE_URL=$(echo "$SOURCE_URL" | sed -E 's|http://[^/]+:4566|'"$AWS_ENDPOINT_URL"'|')
+elif [ -n "${ENDPOINT_URL:-}" ]; then
+  DLQ_URL=$(echo "$DLQ_URL" | sed -E 's|http://[^/]+:4566|'"$ENDPOINT_URL"'|')
+  SOURCE_URL=$(echo "$SOURCE_URL" | sed -E 's|http://[^/]+:4566|'"$ENDPOINT_URL"'|')
+fi
+
 # Support LocalStack or custom AWS endpoints via environment variable
 AWS_CLI_ARGS=(--region "$REGION")
 if [ -n "${AWS_ENDPOINT_URL:-}" ]; then
@@ -49,8 +58,9 @@ echo "========================================================"
 
 TOTAL_REDRIVEN=0
 BATCH_NUMBER=1
+MAX_BATCHES=20
 
-while true; do
+while [ "$BATCH_NUMBER" -le "$MAX_BATCHES" ]; do
   echo "Batch $BATCH_NUMBER: Polling up to 10 messages from DLQ..."
 
   # Receive up to 10 messages with 1-second wait
@@ -60,11 +70,17 @@ while true; do
     --visibility-timeout 30 \
     --wait-time-seconds 1 \
     "${AWS_CLI_ARGS[@]}" \
-    --output json 2>/dev/null || echo "{}")
+    --output json 2>/dev/null || true)
 
-  MESSAGES_COUNT=$(echo "$RECEIVE_OUTPUT" | jq -r '.Messages | length // 0')
+  # Check if empty output received from AWS CLI
+  if [ -z "$RECEIVE_OUTPUT" ] || [ "$RECEIVE_OUTPUT" = "{}" ]; then
+    echo "No more messages found in DLQ."
+    break
+  fi
 
-  if [ "$MESSAGES_COUNT" -eq 0 ]; then
+  MESSAGES_COUNT=$(echo "$RECEIVE_OUTPUT" | jq -r '.Messages | length // 0' 2>/dev/null || echo 0)
+
+  if [ "$MESSAGES_COUNT" -le 0 ]; then
     echo "No more messages found in DLQ."
     break
   fi

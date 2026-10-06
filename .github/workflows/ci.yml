@@ -333,13 +333,18 @@ jobs:
         run: bash tests/integration/stale-match-reassignment-test.sh
 
       - name: Validate DLQ Redrive Tooling
+        timeout-minutes: 3
         run: |
           export AWS_ACCESS_KEY_ID=test
           export AWS_SECRET_ACCESS_KEY=test
           export AWS_DEFAULT_REGION=us-east-1
           ENDPOINT_URL="http://localhost:4566"
-          DLQ_URL=$(aws sqs get-queue-url --endpoint-url "$ENDPOINT_URL" --queue-name "ride-dispatch-platform-local-ride-request-events-dlq" --query "QueueUrl" --output text)
-          SRC_URL=$(aws sqs get-queue-url --endpoint-url "$ENDPOINT_URL" --queue-name "ride-dispatch-platform-local-ride-request-events" --query "QueueUrl" --output text)
+          DLQ_RAW_URL=$(aws sqs get-queue-url --endpoint-url "$ENDPOINT_URL" --queue-name "ride-dispatch-platform-local-ride-request-events-dlq" --query "QueueUrl" --output text)
+          SRC_RAW_URL=$(aws sqs get-queue-url --endpoint-url "$ENDPOINT_URL" --queue-name "ride-dispatch-platform-local-ride-request-events" --query "QueueUrl" --output text)
+
+          # Normalize queue URLs so requests reliably route to localhost:4566 in container runners
+          DLQ_URL=$(echo "$DLQ_RAW_URL" | sed -E 's|http://[^/]+:4566|http://localhost:4566|')
+          SRC_URL=$(echo "$SRC_RAW_URL" | sed -E 's|http://[^/]+:4566|http://localhost:4566|')
 
           # Purge queues
           aws sqs purge-queue --endpoint-url "$ENDPOINT_URL" --queue-url "$DLQ_URL" 2>/dev/null || true
@@ -362,7 +367,7 @@ jobs:
 
           # Verify DLQ is now empty
           DLQ_RCV=$(aws sqs receive-message --endpoint-url "$ENDPOINT_URL" --queue-url "$DLQ_URL" --wait-time-seconds 1)
-          if [ -n "$DLQ_RCV" ]; then
+          if [ -n "$DLQ_RCV" ] && echo "$DLQ_RCV" | grep -q "Messages"; then
             echo "DLQ is not empty!"
             exit 1
           fi
