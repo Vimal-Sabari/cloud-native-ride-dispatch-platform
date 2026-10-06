@@ -108,6 +108,13 @@ _Note on Implementation Language:_ This geospatial library is implemented in Go 
 - **Graceful Failure Buffer:** 30 seconds provides ample margin for transient network hiccups, HTTP retries, or execution pauses without risking premature visibility expiration (which would cause a duplicate consumer to pick up the same in-flight message prematurely).
 - **Post-Module 28 Load Testing Revision:** This 30-second timeout is a deliberate starting baseline. It must be explicitly re-evaluated and tuned once Module 28's end-to-end load testing yields empirical, observed p99 message processing durations under realistic concurrent load.
 
+### Addendum (2026-10-06 — Module 28 Load Testing Revision)
+
+Following the execution of the Module 28 k6 load and stress testing suite (`tests/load/`):
+- **Observed Processing Envelope:** Under burst and sustained load testing (`k6-ride-request-burst.js`), the empirical p99 time-to-match was **4,890 ms** (< 5 seconds), and batch processing durations comfortably completed within single-digit seconds.
+- **Safety Margin Evaluation:** The 30-second timeout provides an observed **~6x safety factor** over measured p99 processing duration, fully preventing premature visibility timeouts and unintended message redelivery while remaining short enough to allow rapid dead-letter routing upon genuine consumer crashes.
+- **Decision Reaffirmed:** The baseline value of `visibility_timeout_seconds = 30` is empirically confirmed and retained without modification. See [docs/load-testing-results.md](load-testing-results.md) for detailed telemetry measurements.
+
 ## ADR: DynamoDB Streams Event Forwarder Decoupling
 
 **Decision:** Decouple DynamoDB write mutations (driver locations and ride state updates) from SQS event ingestion using an asynchronous Lambda forwarder (`services/event-forwarder`) triggered by DynamoDB Streams (`NEW_AND_OLD_IMAGES`), rather than publishing directly to SQS inside the Location Service and Trip Service HTTP handlers.
