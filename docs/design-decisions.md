@@ -301,3 +301,26 @@ Following the execution of the Module 28 k6 load and stress testing suite (`test
   - High-frequency telemetry (Location Service) and ephemeral socket tracking (Notification Service) deliberately avoid conditional checks in favor of idempotent overwrites and deletes. The audit formally articulates why last-write-wins is domain-appropriate for telemetry and why CAS locks are mandatory for trip reservations.
 - **Audit Outcome:**
   - All write paths across Location Service, Trip Service, Matching Service, and Notification Service were verified to be strictly concurrency-safe, with zero unprotected multi-writer corruption vectors. Detailed analysis for each endpoint and method is preserved in [docs/idempotency-audit.md](idempotency-audit.md).
+
+## ADR: Manual-Approval-Gated Deploy, Not Full Continuous Deployment
+
+**Decision:** Implement deployment automation to real AWS via a dedicated GitHub Actions workflow ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) triggered exclusively via manual dispatch (`workflow_dispatch`) and protected by a GitHub Environment approval gate (`aws-dev-production`), rather than practicing full continuous deployment (automatic deploy on git push).
+
+**Why:**
+
+- **Cost and Operational Safety for Solo-Maintained Systems:**
+  - In a solo-maintained portfolio codebase, continuous deployment on every git commit risks unexpected, runaway AWS infrastructure costs (e.g., continuous EC2 runtime, public IP charges, inter-AZ data transfer, and API Gateway quotas).
+  - Draft commits, exploratory branches, or documentation tweaks should never alter real cloud infrastructure as an accidental side effect. Restricting deployments to manual `workflow_dispatch` ensures real AWS resources are provisioned only when an operator deliberately decides to test or demonstrate the platform.
+- **Strict Decoupling of CI (LocalStack) from CD (Real AWS):**
+  - Continuous integration ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) provides rapid, free developer feedback on every push and pull request by running linters, unit test suites, and comprehensive integration tests against local LocalStack emulation.
+  - Decoupling continuous deployment into an independent workflow ensures that real cloud infrastructure changes are separated from everyday test cycles.
+- **Enterprise-Grade Human Approval Gate (`aws-dev-production`):**
+  - By routing the pipeline through a GitHub Environment configured with required reviewers, the workflow pauses automatically after compiling artifacts and before modifying cloud resources.
+  - This two-tier pattern (manual trigger + environment sign-off) reflects production best practices in enterprise platform engineering: deployments are explicitly reviewed and authorized prior to running `terraform apply -auto-approve`.
+- **Zero-Secret AWS OIDC Federation:**
+  - Rather than storing long-lived AWS IAM access keys (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`) in repository secrets, the deployment pipeline authenticates to AWS via OpenID Connect (OIDC) through `aws-actions/configure-aws-credentials@v4`.
+  - Temporary, short-lived STS credentials are issued only to workflow runs originating from this specific GitHub repository, eliminating secret rotation overhead and credential leak vulnerabilities.
+- **Immutable Artifact Promotion & Live Smoke Testing:**
+  - Compiling all service binaries and Lambda zips once during the `build` job and distributing them via GitHub Actions artifacts guarantees that the exact code tested and packaged is what reaches Terraform and EC2.
+  - Concluding the pipeline with an automated smoke test ([`scripts/smoke-test-deployed.sh`](../scripts/smoke-test-deployed.sh)) immediately verifies that live API Gateway routes, authorizers, and trip creation endpoints are operational, failing the workflow if cloud deployment issues occur.
+

@@ -1,0 +1,292 @@
+name: Deploy
+
+# ==============================================================================
+# Real AWS Deployment Pipeline (aws-dev)
+# ==============================================================================
+# Trigger Policy:
+# This workflow is triggered EXCLUSIVELY via workflow_dispatch (manual trigger),
+# never automatically on git push or pull_request.
+#
+# Rationale:
+# In a solo-maintained portfolio project, touching real AWS infrastructure on
+# every routine commit or draft branch risks runaway cloud costs (EC2 runtime,
+# inter-AZ data transfer, VPC endpoints), unexpected billing surprises, and
+# unintended cloud environment drift. Manual dispatch ensures every deployment
+# to real AWS is a deliberate, intentional human operational action.
+# ==============================================================================
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # Required for AWS IAM OIDC authentication
+  contents: read  # Required for actions/checkout
+
+jobs:
+  # ============================================================================
+  # 1. Build Job: Compile and package all polyglot microservices
+  # ============================================================================
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.work'
+          cache: true
+
+      - name: Cache Go modules and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-deploy-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-deploy-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-deploy-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-deploy-
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build shared TypeScript packages
+        run: |
+          npm run build --workspace=@ride-dispatch/models
+          npm run build --workspace=@ride-dispatch/dynamo-client
+          npm run build --workspace=@ride-dispatch/auth
+          npm run build --workspace=@ride-dispatch/sns-client
+          npm run build --workspace=@ride-dispatch/logging
+
+      - name: Build Location Service Go Lambdas
+        run: |
+          bash scripts/build-go-lambda.sh services/location-service update-location
+          bash scripts/build-go-lambda.sh services/location-service update-status
+
+      - name: Build Event Forwarder Go Lambda
+        run: |
+          bash scripts/build-go-lambda.sh services/event-forwarder event-forwarder
+
+      - name: Build Matching Service Go binary
+        run: |
+          GOOS=linux GOARCH=amd64 bash scripts/build-go-binary.sh services/matching-service matching-service bin/matching-service
+
+      - name: Build Auth Stub Node Lambda
+        run: |
+          bash scripts/build-node-lambda.sh services/auth-stub src/authorizer.ts authorizer
+
+      - name: Build Trip Service Node Lambdas
+        run: |
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/request-ride-entry.ts request-ride
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/get-ride-entry.ts get-ride
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/cancel-ride-entry.ts cancel-ride
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/list-rider-rides-entry.ts list-rider-rides
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/internal-assign-driver-entry.ts assign-driver
+          bash scripts/build-node-lambda.sh services/trip-service src/handlers/reassign-stale-matches-entry.ts reassign-stale-matches
+
+      - name: Build Notification Service Node Lambdas
+        run: |
+          bash scripts/build-node-lambda.sh services/notification-service src/handlers/connect-entry.ts connect
+          bash scripts/build-node-lambda.sh services/notification-service src/handlers/disconnect-entry.ts disconnect
+          bash scripts/build-node-lambda.sh services/notification-service src/handlers/sns-fanout-entry.ts fanout
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            services/location-service/*.zip
+            services/trip-service/*.zip
+            services/notification-service/*.zip
+            services/auth-stub/*.zip
+            services/event-forwarder/*.zip
+            bin/matching-service
+          retention-days: 1
+
+  # ============================================================================
+  # 2. Await-Approval Job: Environment-gated human sign-off
+  # ============================================================================
+  # ONE-TIME MANUAL REPOSITORY CONFIGURATION REQUIRED:
+  # The environment 'aws-dev-production' referenced below MUST be created in the
+  # repository settings via the GitHub Web UI:
+  #   1. Navigate to: Settings > Environments > New environment
+  #   2. Name: aws-dev-production
+  #   3. Under 'Environment protection rules', check 'Required reviewers'
+  #   4. Select your GitHub username (or designated approver) and save.
+  #
+  # WHY THIS CANNOT BE CONFIGURED IN YAML:
+  # GitHub Environment protection rules and reviewer access control policies are
+  # administrative repository-level security settings that GitHub explicitly
+  # prevents workflow YAML files from bootstrapping or modifying.
+  #
+  # HOW THIS WORKS:
+  # Referencing `environment: aws-dev-production` causes GitHub Actions to pause
+  # the workflow run immediately before executing this job. GitHub sends a review
+  # notification to the designated reviewer(s). The workflow stays in a waiting
+  # state until a required reviewer reviews and clicks "Approve and deploy".
+  # This job itself is an intentional lightweight no-op; its sole purpose is to
+  # serve as the human approval gate protecting real AWS.
+  # ============================================================================
+  await-approval:
+    name: await-approval
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: aws-dev-production
+    steps:
+      - name: Confirmation of reviewer approval
+        run: |
+          echo "=================================================================="
+          echo "Deployment to aws-dev-production approved by designated reviewer."
+          echo "Unblocking Terraform infrastructure provisioning and deployment."
+          echo "=================================================================="
+
+  # ============================================================================
+  # 3. Terraform-Apply Job: Provision and update real AWS infrastructure
+  # ============================================================================
+  # ONE-TIME MANUAL AWS CONFIGURATION REQUIRED (OIDC Setup):
+  # GitHub Actions authenticates to AWS via OpenID Connect (OIDC) without static
+  # long-lived AWS IAM access keys. This requires a one-time AWS-side setup:
+  #   1. Create an IAM OIDC Identity Provider in AWS IAM console or CLI:
+  #      - Provider URL: https://token.actions.githubusercontent.com
+  #      - Audience: sts.amazonaws.com
+  #   2. Create an IAM Role (e.g. GitHubActionsRideDispatchDeployRole) with trust
+  #      policy scoped to this specific GitHub repository:
+  #      {
+  #        "Version": "2012-10-17",
+  #        "Statement": [{
+  #          "Effect": "Allow",
+  #          "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
+  #          "Action": "sts:AssumeRoleWithWebIdentity",
+  #          "Condition": {
+  #            "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+  #            "StringLike": { "token.actions.githubusercontent.com:sub": "repo:Vimal-Sabari/cloud-native-ride-dispatch-platform:*" }
+  #          }
+  #        }]
+  #      }
+  #   3. Populate repository secret or variable AWS_ROLE_ARN with the IAM Role ARN.
+  # See docs/deployment-guide.md for comprehensive setup and policy details.
+  # ============================================================================
+  terraform-apply:
+    name: terraform-apply
+    needs: await-approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.7.0'
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN || vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Terraform Init & Apply
+        run: |
+          cd infra
+          echo "Initializing Terraform backend..."
+          terraform init
+          echo "Applying Terraform configuration with aws-dev.tfvars..."
+          # Note: -auto-approve is appropriate and intentional here specifically because
+          # the explicit human review and approval gate already occurred in the 'await-approval'
+          # job. A second interactive CLI prompt is neither supported nor desirable in non-interactive CI.
+          terraform apply -var-file=aws-dev.tfvars -auto-approve
+          echo "Capturing Terraform outputs to tf-outputs.json..."
+          terraform output -json > ../tf-outputs.json
+
+      - name: Upload Terraform outputs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-outputs
+          path: tf-outputs.json
+          retention-days: 1
+
+  # ============================================================================
+  # 4. Deploy-Matching-Service Job: Deploy Go daemon to EC2 instance
+  # ============================================================================
+  deploy-matching-service:
+    name: deploy-matching-service
+    needs: terraform-apply
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+
+      - name: Download Terraform outputs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tf-outputs
+
+      - name: Setup EC2 SSH key
+        if: ${{ env.EC2_SSH_KEY != '' }}
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$EC2_SSH_KEY" > ~/.ssh/ride-dispatch-ec2.pem
+          chmod 600 ~/.ssh/ride-dispatch-ec2.pem
+
+      - name: Deploy Matching Service
+        run: |
+          chmod +x bin/matching-service scripts/deploy-matching-service.sh
+          # Pass tf-outputs.json so the deployment script reads the provisioned EC2
+          # public IP directly from the captured outputs artifact without requiring local Terraform state.
+          bash scripts/deploy-matching-service.sh tf-outputs.json
+
+  # ============================================================================
+  # 5. Smoke-Test Job: Validate live API Gateway endpoints
+  # ============================================================================
+  smoke-test:
+    name: smoke-test
+    needs: deploy-matching-service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Terraform outputs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tf-outputs
+
+      - name: Run Smoke Tests against Real Deployment
+        run: |
+          chmod +x scripts/smoke-test-deployed.sh
+          API_URL=$(jq -r '.api_gateway_invoke_url.value // empty' tf-outputs.json)
+          if [ -z "$API_URL" ]; then
+            echo "Error: api_gateway_invoke_url not found in tf-outputs.json"
+            exit 1
+          fi
+          echo "Resolved Real API Gateway Base URL: $API_URL"
+          bash scripts/smoke-test-deployed.sh "$API_URL"

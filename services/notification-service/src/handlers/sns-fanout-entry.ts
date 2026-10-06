@@ -95,3 +95,5 @@ export const handler = async (event: SNSEvent): Promise<void> => {
     }
   }
 };
+
+export const fanoutHandler = handler;

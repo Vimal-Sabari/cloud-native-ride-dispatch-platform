@@ -29,26 +29,47 @@ INFRA_DIR="$ROOT_DIR/infra"
 
 echo "=== Matching Service EC2 Deployment ==="
 
-# Step 1: Query EC2 Public IP from Terraform outputs
-cd "$INFRA_DIR"
-if ! terraform output matching_service_public_ip >/dev/null 2>&1; then
-  echo "Error: Could not retrieve matching_service_public_ip from terraform outputs."
-  echo "Ensure 'terraform apply -var-file=aws-dev.tfvars' has succeeded."
-  exit 1
+# Step 1: Query EC2 Public IP from tf-outputs.json (if provided) or Terraform outputs
+TF_OUTPUTS_FILE="${1:-}"
+
+if [ -n "$TF_OUTPUTS_FILE" ] && [ -f "$TF_OUTPUTS_FILE" ]; then
+  echo "Reading EC2 public IP from outputs file: $TF_OUTPUTS_FILE"
+  if command -v jq >/dev/null 2>&1; then
+    EC2_IP=$(jq -r '.matching_service_public_ip.value // empty' "$TF_OUTPUTS_FILE")
+  elif command -v python3 >/dev/null 2>&1; then
+    EC2_IP=$(python3 -c "import json; data=json.load(open('$TF_OUTPUTS_FILE')); print(data.get('matching_service_public_ip', {}).get('value', ''))")
+  elif command -v node >/dev/null 2>&1; then
+    EC2_IP=$(node -e "const d = require('./$TF_OUTPUTS_FILE'); console.log(d.matching_service_public_ip?.value || '');")
+  else
+    echo "Error: Neither jq, python3, nor node is available to parse $TF_OUTPUTS_FILE."
+    exit 1
+  fi
+else
+  cd "$INFRA_DIR"
+  if ! terraform output matching_service_public_ip >/dev/null 2>&1; then
+    echo "Error: Could not retrieve matching_service_public_ip from terraform outputs."
+    echo "Ensure 'terraform apply -var-file=aws-dev.tfvars' has succeeded."
+    exit 1
+  fi
+
+  EC2_IP=$(terraform output -raw matching_service_public_ip)
+  cd "$ROOT_DIR"
 fi
 
-EC2_IP=$(terraform output -raw matching_service_public_ip)
 if [ -z "$EC2_IP" ]; then
   echo "Error: matching_service_public_ip is empty. Ensure environment != 'local'."
   exit 1
 fi
 echo "Target EC2 Instance IP: $EC2_IP"
-cd "$ROOT_DIR"
 
-# Step 2: Build linux/amd64 binary
+# Step 2: Ensure linux/amd64 binary is available (build if not already present)
 BIN_PATH="$ROOT_DIR/bin/matching-service"
-echo "Building linux/amd64 binary..."
-GOOS=linux GOARCH=amd64 bash "$ROOT_DIR/scripts/build-go-binary.sh" services/matching-service matching-service "$BIN_PATH"
+if [ -f "$BIN_PATH" ]; then
+  echo "Using existing matching-service binary at $BIN_PATH"
+else
+  echo "Building linux/amd64 binary..."
+  GOOS=linux GOARCH=amd64 bash "$ROOT_DIR/scripts/build-go-binary.sh" services/matching-service matching-service "$BIN_PATH"
+fi
 
 # Step 3: Copy binary and systemd service definition to instance via SCP
 echo "Uploading binary and systemd unit to EC2 host ($EC2_IP)..."
